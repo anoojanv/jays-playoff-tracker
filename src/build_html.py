@@ -1,0 +1,762 @@
+"""Render the Blue Jays playoff tracker from simulation output."""
+import json, datetime, html
+
+R = json.load(open("results.json"))
+P = json.load(open("path.json"))
+E = json.load(open("ensemble.json"))
+import data as _D
+EXT = _D.BREF or {}
+
+JAYS = "Blue Jays"
+ODDS = R["odds"]["playoff"]
+LO, HI = E["lo"], E["hi"]
+W, L = R["record"]["w"], R["record"]["l"]
+GL = R["games_left"]
+CUT = R["cut_wins"]["p50"]
+PROJ = R["proj_wins"]["mean"]
+
+# ---- palette (validated: see validate_palette.js runs) ----
+C = dict(
+    # Blue Jays light theme. Roles: BLUE = data marks, RED = attention (the live
+    # scenario, must-see games, the rival that matters most), NAVY = structural
+    # reference rules and primary ink. All validated on the white card surface:
+    #   blue/red categorical pair -> CVD worst-pair dE 21.8, normal-vision 35.7
+    #   leverage ramp -> monotone L, adjacent dL >= .06, light end 2.28:1 vs white
+    page="#EAF1FA", surf="#FFFFFF", card="#FFFFFF", card2="#EDF3FB",
+    brand="#134A8E",          # Blue Jays royal - header block, section headings
+    blue="#1C5FAD",           # data marks (royal, stepped into the light-mode band)
+    red="#E8291C",            # Blue Jays red - attention
+    navy="#16264B",           # deep navy - primary ink + static reference rules
+    ink="#16264B", ink2="#4A5C7A",
+    mute="#5F7290",           # 4.89:1 on white - small uppercase labels must clear AA
+    redtext="#DA2115",        # 4.99:1 - brand red is 4.41:1, too low for 11px text
+    grid="#E3EBF6", axis="#C3D2E6",
+    ramp=["#0F4283", "#1F569B", "#3676C1", "#5A94D6", "#7FB0E2"],   # dark -> light
+    good="#157F3C", warn="#B07500", crit="#E8291C",
+    scen="#E8291C",           # the user's live scenario marker
+)
+
+
+DATE = datetime.date.fromisoformat(R["as_of"])
+STAMP = DATE.strftime("%A, %B %-d, %Y")
+
+TEAM_ABBR = {"Blue Jays": "TOR", "Yankees": "NYY", "Red Sox": "BOS", "Rays": "TB",
+             "Orioles": "BAL", "White Sox": "CWS", "Tigers": "DET", "Twins": "MIN",
+             "Guardians": "CLE", "Royals": "KC", "Astros": "HOU", "Rangers": "TEX",
+             "Mariners": "SEA", "Athletics": "ATH", "Angels": "LAA", "Reds": "CIN"}
+
+
+def pct(x, d=1):
+    return f"{x*100:.{d}f}%"
+
+
+def ramp_for(v, lo, hi):
+    """Map a leverage value onto the validated 5-step ordinal ramp (dark end = highest)."""
+    if hi <= lo:
+        return C["ramp"][2]
+    t = (v - lo) / (hi - lo)
+    return C["ramp"][::-1][min(4, int(t * 5))]
+
+
+# ------------------------------------------------------------------ wild card race
+race_order = ["Yankees", "Red Sox", "Rangers", "Tigers", "Guardians", "Twins",
+              "Blue Jays", "Mariners", "Orioles"]
+div_leaders = {"Rays", "White Sox", "Astros"}
+wc_rows = []
+jays_pct = W / (W + L)
+for t in race_order:
+    v = R["rivals"][t]
+    tp = v["w"] / (v["w"] + v["l"])
+    gb = ((v["w"] - W) + (L - v["l"])) / 2
+    wc_rows.append(dict(team=t, w=v["w"], l=v["l"], pct=tp, rd=v["rd"],
+                        gl=v["games_left"], proj=v["proj_w"], odds=v["playoff"], gb=gb))
+wc_rows.sort(key=lambda r: -r["pct"])
+# the cut line sits after the 3rd wild card (top 3 non-division-leaders)
+cut_after = 3
+
+AL_ORDER = json.load(open("simdata.json"))["teams"]
+wc_html = ""
+for i, r in enumerate(wc_rows):
+    ti = AL_ORDER.index(r["team"])
+    if i == cut_after:
+        wc_html += ('<tr class="cut"><td colspan="6" class="cutlab">'
+                    '— wild card cut line —</td></tr>')
+    g = r["gb"] + 0.0
+    gbtxt = "—" if r["team"] == JAYS else ("0.0" if abs(g) < 0.05 else f"{g:+.1f}")
+    rdcls = "rdpos" if r["rd"] > 0 else "rdneg"
+    cls = "jays" if r["team"] == JAYS else ""
+    wc_html += (
+        f'<tr class="{cls}"><td class="tm">{r["team"]}</td>'
+        f'<td style="text-align:right">{r["w"]}–{r["l"]}</td>'
+        f'<td style="text-align:right" class="gb">{gbtxt}</td>'
+        f'<td style="text-align:right" class="{rdcls}">{r["rd"]:+d}</td>'
+        f'<td style="text-align:right" class="hide-s">{r["proj"]:.0f}</td>'
+        f'<td><div class="oddsbar"><div class="obt"><div class="obf" '
+        f'data-oddsbar="{ti}" style="width:{r["odds"]*100:.0f}%"></div></div>'
+        f'<div class="obn" data-oddsnum="{ti}">{r["odds"]*100:.0f}%</div></div></td></tr>')
+
+# ------------------------------------------------------------------ win curve
+curve = {int(k): v for k, v in R["win_curve"].items()}
+xs = [w for w in sorted(curve) if 76 <= w <= 88]
+ys = [curve[w][0] for w in xs]
+
+CW, CH = 660, 250
+PADL, PADR, PADT, PADB = 44, 14, 16, 34
+px = lambda w: PADL + (w - xs[0]) / (xs[-1] - xs[0]) * (CW - PADL - PADR)
+py = lambda p: PADT + (1 - p) * (CH - PADT - PADB)
+
+pts = " ".join(f"{px(w):.1f},{py(p):.1f}" for w, p in zip(xs, ys))
+area = f"{PADL},{py(0):.1f} " + pts + f" {px(xs[-1]):.1f},{py(0):.1f}"
+
+curve_marks = []
+for target, lab in [(R["wins_10"], "10%"), (R["wins_50"], "50%"), (R["wins_90"], "90%")]:
+    if target and xs[0] <= target <= xs[-1]:
+        curve_marks.append((target, curve[target][0], lab))
+
+gridlines = ""
+for gy in [0, .25, .5, .75, 1.0]:
+    y = py(gy)
+    gridlines += (f'<line x1="{PADL}" x2="{CW-PADR}" y1="{y:.1f}" y2="{y:.1f}" '
+                  f'stroke="{C["grid"]}" stroke-width="1"/>'
+                  f'<text x="{PADL-8}" y="{y+4:.1f}" text-anchor="end" font-size="10" '
+                  f'fill="{C["mute"]}" style="font-variant-numeric:tabular-nums">{int(gy*100)}%</text>')
+
+xticks = ""
+for w in xs:
+    if w % 2 == 0:
+        xticks += (f'<text x="{px(w):.1f}" y="{CH-PADB+16}" text-anchor="middle" font-size="10" '
+                   f'fill="{C["mute"]}" style="font-variant-numeric:tabular-nums">{w}</text>')
+
+dots = ""
+for w, p, lab in curve_marks:
+    dots += (f'<circle cx="{px(w):.1f}" cy="{py(p):.1f}" r="5" fill="{C["blue"]}" '
+             f'stroke="{C["surf"]}" stroke-width="2"/>'
+             f'<text x="{px(w):.1f}" y="{py(p)-13:.1f}" text-anchor="middle" font-size="11" '
+             f'font-weight="800" fill="{C["navy"]}" stroke="#FFFFFF" stroke-width="3.5" '
+             f'paint-order="stroke" stroke-linejoin="round">{w}W</text>')
+
+hover = ""
+for w, p in zip(xs, ys):
+    hover += (f'<rect x="{px(w)-13:.1f}" y="{PADT}" width="26" height="{CH-PADT-PADB}" '
+              f'fill="transparent"><title>{w} wins → {pct(p)} chance of a playoff spot</title></rect>')
+
+cutx = px(CUT) if xs[0] <= CUT <= xs[-1] else None
+cutline = ""
+if cutx:
+    cutline = (f'<line x1="{cutx:.1f}" x2="{cutx:.1f}" y1="{PADT+26}" y2="{CH-PADB}" '
+               f'stroke="{C["navy"]}" stroke-width="2"/>'
+               f'<text x="{cutx-8:.1f}" y="{CH-PADB-8:.1f}" text-anchor="end" font-size="10" '
+               f'font-weight="700" fill="{C["navy"]}" stroke="#FFFFFF" stroke-width="3.5" '
+               f'paint-order="stroke" stroke-linejoin="round">MEDIAN CUT LINE {CUT:.0f}W</text>')
+
+# ------------------------------------------------------------------ series roadmap
+sp = P["series_path"]
+sw_lo = min(s["swing_series"] for s in sp)
+sw_hi = max(s["swing_series"] for s in sp)
+series_rows = ""
+for si, s_ in enumerate(sp):
+    n = s_["n"]
+    tgt = int(round(s_["need"]))
+    loc = "vs" if s_["home"] else "@"
+    d0 = datetime.date.fromisoformat(s_["start"]).strftime("%b %-d")
+    d1 = datetime.date.fromisoformat(s_["end"]).strftime("%-d")
+    col = ramp_for(s_["swing_series"], sw_lo, sw_hi)
+    bw = 8 + (s_["swing_series"] - sw_lo) / (sw_hi - sw_lo) * 92
+    opp_ab = TEAM_ABBR.get(s_["opp"], s_["opp"])
+    btns = ""
+    for k in range(n, -1, -1):
+        isreq = " req" if k == tgt else ""
+        btns += (f'<button type="button" data-w="{k}" aria-pressed="false" class="pk{isreq}" '
+                 f'title="Blue Jays go {k}\u2013{n-k} against {opp_ab}">{k}\u2013{n-k}</button>')
+    series_rows += f"""
+    <tr data-series="{si}">
+      <td class="dt">{d0}\u2013{d1}</td>
+      <td class="op"><span class="loc">{loc}</span> <b>{opp_ab}</b>
+          <span class="rec">{s_['opp_rec']}</span></td>
+      <td class="pkcell"><div class="pkg" role="group"
+          aria-label="Set the Blue Jays result for the {opp_ab} series">{btns}</div></td>
+      <td class="ex" style="color:{C['ink2']}">{s_['need']:.2f}</td>
+      <td class="ex hide-s">{s_['exp']:.2f}</td>
+      <td class="lv">
+        <div class="lvwrap" title="Win this series \u2192 {pct(s_['p_in_if_win_series'])}. Lose it \u2192 {pct(s_['p_in_if_lose_series'])}.">
+          <div class="lvbar" style="width:{bw:.0f}%;background:{col}"></div>
+          <span class="lvnum">{s_['swing_series']*100:.1f}</span>
+        </div>
+      </td>
+    </tr>"""
+
+# ------------------------------------------------------------------ dependency
+dep = R["dependency"]
+dep_items = sorted(dep.items(), key=lambda x: -x[1]["swing"])[:6]
+dmax = max(abs(v["swing"]) for _, v in dep_items)
+dep_rows = ""
+for i, (t, v) in enumerate(dep_items):
+    wpx = abs(v["swing"]) / dmax * 100
+    bar_col = C["red"] if i == 0 else C["blue"]      # emphasis: the one that matters most
+    dep_rows += f"""
+    <div class="deprow">
+      <div class="depname">{TEAM_ABBR.get(t,t)}</div>
+      <div class="deptrack">
+        <div class="depbar" style="width:{wpx:.0f}%;background:{bar_col}" title="If {t} finish cold (~{v['cold_w']:.0f}W) the Jays are {pct(v['if_rival_cold'])}; if they finish hot (~{v['hot_w']:.0f}W), {pct(v['if_rival_hot'])}."></div>
+      </div>
+      <div class="depnum">{pct(v['if_rival_cold'],1)} <span class="arrow">↔</span> {pct(v['if_rival_hot'],1)}</div>
+    </div>"""
+
+# ------------------------------------------------------------------ must-see TV
+lev = sorted(R["leverage"], key=lambda x: -x["leverage"])
+seen, must_see = set(), []
+for g in lev:
+    key = (g["opp"], g["date"][:7])
+    if len(must_see) >= 5:
+        break
+    if key in seen:
+        continue
+    seen.add(key)
+    must_see.append(g)
+
+WHY = {
+    "Guardians": "Four-way tie-breaker fuel — Cleveland is directly in the way, and this is the only time the Jays see them again.",
+    "Tigers": "Detroit holds a wild card, owns the best run differential in the cluster (+90), and is the likeliest team to pull away. Toronto's only chance to slow them.",
+    "Rangers": "Texas sits right on the cut line and this is Toronto's only head-to-head with them left \u2014 the standings can flip outright here.",
+    "Rays": "Tampa is the AL's best team, but three road wins here is the single biggest step up the win curve.",
+    "Yankees": "The opener. Sweep it and the Jays leave the week inside the race; get swept and the math turns brutal.",
+    "Orioles": "A season-ending division swing where Baltimore has nothing to lose and the Jays have everything.",
+    "Mariners": "Seattle is the other team hovering just below the cut. A home series is a two-for-one.",
+}
+mustsee_rows = ""
+for i, g in enumerate(must_see):
+    d = datetime.date.fromisoformat(g["date"])
+    loc = "vs" if g["home"] else "@"
+    mustsee_rows += f"""
+    <div class="mstile">
+      <div class="msrank">{i+1}</div>
+      <div class="msbody">
+        <div class="msdate">{d.strftime('%a %b %-d')}</div>
+        <div class="msmatch">{loc} {g['opp']}</div>
+        <div class="mswhy">{WHY.get(g['opp'],'A direct swing game against a team in the wild-card cluster.')}</div>
+      </div>
+      <div class="msswing"><b>±{g['leverage']*100:.1f}</b><span>pts of<br>playoff odds</span></div>
+    </div>"""
+
+# ------------------------------------------------------------------ ensemble strip
+ens = sorted(E["scenarios"], key=lambda s: s["odds"])
+ens_rows = ""
+for s in ens:
+    x = (s["odds"] - 0.05) / (0.14 - 0.05) * 100
+    prim = "primary" in s["label"]
+    ens_rows += (f'<div class="ensrow"><div class="enslab">{html.escape(s["label"].replace(" - primary model",""))}'
+                 f'{" <em>◂ primary</em>" if prim else ""}</div>'
+                 f'<div class="enstrack"><div class="ensdot{" p" if prim else ""}" style="left:{x:.1f}%"></div></div>'
+                 f'<div class="ensval">{pct(s["odds"])}</div></div>')
+
+SIM = json.load(open("simdata.json"))
+SIM["curveX0"], SIM["curveX1"] = round(px(xs[0]), 2), round(px(xs[-1]), 2)
+SIM["curveW0"], SIM["curveW1"] = xs[0], xs[-1]
+SIM["rosNeededW"] = P["ros_needed_w"]
+SIM["projWins"] = round(PROJ, 2)
+SIM["seriesNeeded"] = int(round(P["series_won_needed"]))
+SIMJSON = json.dumps(SIM, separators=(",", ":"))
+APPJS = open("app.js").read()
+
+# comparison odds are best-effort: hide the pill entirely if the scrape failed
+if EXT and EXT.get("odds"):
+    _d = EXT.get("date")
+    _dtxt = datetime.date.fromisoformat(_d).strftime("%b %-d") if _d else "latest"
+    bref_pill = f'<div class="pill">Baseball-Reference: {EXT["odds"]}% ({_dtxt})</div>'
+    bref_note_open = ("<b>Why this differs from Baseball-Reference's "
+                      f"{EXT['odds']}%:</b>")
+else:
+    bref_pill = ""
+    bref_note_open = "<b>On the gap with other public models:</b>"
+
+series_won = P["series_won_needed"]
+# games back of the third wild card (the first team below the cut line is index cut_after-1)
+wc3 = wc_rows[cut_after - 1]
+gb_wc3 = wc3["gb"] if wc3["team"] != JAYS else 0.0
+
+HTML = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blue Jays Playoff Tracker — {DATE.strftime('%b %-d, %Y')}</title>
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="{C['brand']}">
+<meta name="description" content="Toronto {W}–{L}. {ODDS*100:.1f}% to reach the playoffs. What it takes: {P['ros_needed_w']}–{P['ros_needed_l']} the rest of the way, {series_won:.0f} of {P['n_series']} remaining series. Updated {DATE.strftime('%b %-d')}.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Blue Jays Playoff Tracker — {ODDS*100:.1f}%">
+<meta property="og:description" content="Toronto {W}–{L}, {abs(gb_wc3):.1f} back of the third wild card. Needs {P['ros_needed_w']}–{P['ros_needed_l']} to reach the {CUT:.0f}-win cut line. {R['nsim']:,} simulated seasons, updated {DATE.strftime('%b %-d')}.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230B1A33'/%3E%3Cpath d='M7 22V10h6a3.2 3.2 0 010 6.4H7' stroke='%234691E8' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3Cpath d='M13 16.4a3.2 3.2 0 010 6.4H7' stroke='%234691E8' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3Cpath d='M19 10l3.5 12L26 10' stroke='%23E8555F' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:{C['page']};color:{C['ink']};
+ font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+ padding:18px;line-height:1.45;-webkit-font-smoothing:antialiased}}
+.wrap{{max-width:1120px;margin:0 auto}}
+.card{{background:{C['card']};border:1px solid rgba(19,74,142,.13);border-radius:14px;
+ padding:18px 20px;box-shadow:0 1px 2px rgba(19,74,142,.05),0 2px 10px rgba(19,74,142,.04)}}
+h2{{font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:{C['brand']};
+ font-weight:800;margin-bottom:14px}}
+.sub{{font-size:12px;color:{C['ink2']};font-weight:400;letter-spacing:0;text-transform:none}}
+
+/* header - the brand block */
+.hdr{{background:{C['brand']};border-radius:14px;padding:22px 26px;
+ display:flex;align-items:center;gap:20px;margin-bottom:14px;position:relative;
+ overflow:hidden;box-shadow:0 2px 14px rgba(19,74,142,.22)}}
+.hdr:before{{content:"";position:absolute;left:0;top:0;bottom:0;width:7px;
+ background:{C['red']}}}
+.hdr h1{{font-size:27px;font-weight:800;letter-spacing:-.02em;line-height:1.1;color:#fff}}
+.hdr h1 span{{color:#fff;background:{C['red']};padding:0 8px;border-radius:5px;
+ margin:0 2px}}
+.hdr .stamp{{font-size:12px;color:rgba(255,255,255,.74);margin-top:6px}}
+.hdr .rec{{margin-left:auto;text-align:right;color:#fff}}
+.hdr .rec b{{font-size:32px;font-weight:800;letter-spacing:-.02em}}
+.hdr .rec div{{font-size:11px;color:rgba(255,255,255,.72);letter-spacing:.08em;
+ text-transform:uppercase}}
+
+/* ---- the control panel: this is the thing you touch, so it gets its own language.
+   Blue = model data. RED = your input. Nothing red on this page is a readout. ---- */
+.panel{{background:{C['card']};border:2px solid {C['red']};border-radius:16px;
+ padding:18px 22px 20px;margin-bottom:14px;
+ box-shadow:0 2px 4px rgba(19,74,142,.06),0 6px 22px rgba(232,41,28,.10)}}
+.pnhead{{display:flex;align-items:center;gap:10px;margin-bottom:4px}}
+.pnhead h2{{margin-bottom:0;color:{C['redtext']}}}
+.livetag{{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+ color:#fff;background:{C['redtext']};padding:3px 8px;border-radius:20px}}
+.pnbody{{display:grid;grid-template-columns:250px 1fr;gap:26px;align-items:start;
+ margin-top:14px}}
+.pnodds{{border-right:1px solid {C['grid']};padding-right:22px}}
+.big{{font-size:64px;font-weight:800;letter-spacing:-.035em;line-height:1;
+ color:{C['brand']};font-variant-numeric:proportional-nums}}
+.big small{{font-size:25px;font-weight:700}}
+.oddscap{{font-size:11px;color:{C['mute']};letter-spacing:.04em;margin-top:2px}}
+.meter{{height:8px;border-radius:4px;background:{C['card2']};overflow:hidden;margin:12px 0 8px}}
+.mfill{{height:100%;border-radius:4px;background:{C['brand']};width:0;
+ transition:width .4s cubic-bezier(.2,.7,.3,1)}}
+.livedelta{{font-size:11.5px;color:{C['mute']};min-height:17px;line-height:1.35}}
+.livedelta.up{{color:{C['good']};font-weight:700}}
+.livedelta.down{{color:{C['redtext']};font-weight:700}}
+
+.sldtop{{display:flex;align-items:baseline;justify-content:space-between;gap:12px}}
+.sldval{{font-size:30px;font-weight:800;letter-spacing:-.02em;color:{C['redtext']};
+ font-variant-numeric:tabular-nums}}
+.sldcap{{font-size:11px;color:{C['mute']};letter-spacing:.05em;text-transform:uppercase;
+ font-weight:700;margin-left:7px}}
+.sldpace{{font-size:11.5px;color:{C['ink2']}}}
+.sldwrap{{position:relative;margin:6px 0 30px}}
+
+/* the slider itself - deliberately oversized so it reads as a control at a glance */
+input[type=range].sld{{-webkit-appearance:none;appearance:none;width:100%;height:34px;
+ background:transparent;cursor:pointer;display:block;margin:0}}
+input[type=range].sld:focus{{outline:none}}
+input[type=range].sld::-webkit-slider-runnable-track{{height:14px;border-radius:7px;
+ border:1px solid rgba(19,74,142,.2);
+ background:linear-gradient(90deg,{C['red']} 0%,{C['red']} var(--fill,50%),
+  {C['card2']} var(--fill,50%),{C['card2']} 100%)}}
+input[type=range].sld::-webkit-slider-thumb{{-webkit-appearance:none;appearance:none;
+ width:32px;height:32px;border-radius:50%;background:{C['red']};border:4px solid #fff;
+ box-shadow:0 2px 8px rgba(19,74,142,.4);margin-top:-10px}}
+input[type=range].sld:focus-visible::-webkit-slider-thumb{{box-shadow:0 0 0 4px rgba(232,41,28,.3)}}
+input[type=range].sld::-moz-range-track{{height:14px;border-radius:7px;background:{C['card2']};
+ border:1px solid rgba(19,74,142,.2)}}
+input[type=range].sld::-moz-range-progress{{height:14px;border-radius:7px;background:{C['red']}}}
+input[type=range].sld::-moz-range-thumb{{width:28px;height:28px;border-radius:50%;
+ background:{C['red']};border:4px solid #fff;box-shadow:0 2px 8px rgba(19,74,142,.4)}}
+.sldticks{{position:relative;height:14px;margin-top:-2px}}
+.tick{{position:absolute;transform:translateX(-50%);font-size:10px;color:{C['mute']};
+ white-space:nowrap;padding-top:8px}}
+.tick i{{position:absolute;top:0;left:50%;width:1px;height:6px;background:{C['axis']}}}
+.tick.need{{color:{C['brand']};font-weight:800}}
+.tick.need i{{background:{C['brand']};width:2px;height:9px}}
+.tick.end{{transform:translateX(-100%)}}
+.tick.end i{{left:auto;right:0}}
+.tick.start{{transform:none}}
+.tick.start i{{left:0}}
+
+.pnread{{display:flex;flex-wrap:wrap;align-items:flex-end;gap:22px;margin-top:16px;
+ padding-top:14px;border-top:1px solid {C['grid']}}}
+.sv{{display:block;font-size:22px;font-weight:800;letter-spacing:-.02em;color:{C['navy']};
+ font-variant-numeric:tabular-nums}}
+.sl{{display:block;font-size:10px;letter-spacing:.07em;text-transform:uppercase;
+ color:{C['mute']};margin-top:2px}}
+.perf{{margin-left:auto;font-size:10px;color:{C['mute']};font-variant-numeric:tabular-nums}}
+
+.range{{margin-top:4px}}
+.rtrack{{height:8px;border-radius:4px;background:{C['card2']};position:relative;margin:7px 0 6px}}
+.rfill{{position:absolute;height:100%;border-radius:4px;background:{C['blue']};opacity:.4}}
+.rtick{{position:absolute;top:-4px;width:3px;height:16px;border-radius:2px;background:{C['brand']}}}
+.rlab{{display:flex;justify-content:space-between;font-size:10.5px;color:{C['mute']};
+ font-variant-numeric:tabular-nums}}
+.statv{{font-size:40px;font-weight:800;letter-spacing:-.03em;line-height:1.05;color:{C['navy']}}}
+.statl{{font-size:11.5px;color:{C['ink2']};margin-top:7px}}
+.pill{{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.08em;
+ text-transform:uppercase;padding:4px 9px;border-radius:20px;background:{C['card2']};
+ color:{C['brand']};margin-top:10px}}
+
+.grid2{{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}}
+.grid2b{{display:grid;grid-template-columns:1.15fr .85fr;gap:14px;margin-bottom:14px;
+ align-items:start}}
+
+/* table */
+table{{width:100%;border-collapse:collapse;font-size:12.5px}}
+th{{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:{C['mute']};
+ text-align:left;font-weight:700;padding:0 6px 8px}}
+td{{padding:7px 6px;border-top:1px solid {C['grid']};font-variant-numeric:tabular-nums}}
+tr.jays td{{background:rgba(28,95,173,.09)}}
+tr.jays td:first-child{{box-shadow:inset 3px 0 0 {C['brand']}}}
+tr.cut td{{border-bottom:2px solid {C['navy']}}}
+.cutlab{{font-size:9.5px;letter-spacing:.1em;color:{C['navy']};font-weight:800;
+ text-transform:uppercase;padding:4px 6px 1px}}
+.tm{{font-weight:700;color:{C['navy']}}}
+.gb{{color:{C['ink2']}}}
+.oddsbar{{display:flex;align-items:center;gap:7px}}
+.obt{{flex:1;height:6px;border-radius:3px;background:{C['card2']};overflow:hidden;min-width:40px}}
+.obf{{height:100%;border-radius:3px;background:{C['blue']};transition:width .4s}}
+.obn{{width:38px;text-align:right;font-size:11.5px;color:{C['ink2']}}}
+.rdpos{{color:{C['good']};font-weight:600}} .rdneg{{color:{C['redtext']};font-weight:600}}
+
+/* series */
+td.dt{{color:{C['ink2']};white-space:nowrap;font-size:11.5px}}
+td.op{{white-space:nowrap;color:{C['navy']}}}
+.loc{{color:{C['mute']};font-size:11px}}
+.rec{{color:{C['mute']};font-size:11px;margin-left:3px}}
+.badge{{display:inline-block;min-width:44px;text-align:center;padding:2px 7px;border-radius:5px;
+ font-size:11px;font-weight:800;letter-spacing:.02em}}
+td.ex{{color:{C['mute']};text-align:right;width:44px}}
+.lvwrap{{display:flex;align-items:center;gap:8px}}
+.lvbar{{height:7px;border-radius:4px}}
+.lvnum{{font-size:11px;color:{C['ink2']};width:26px}}
+
+/* dependency */
+.deprow{{display:flex;align-items:center;gap:10px;margin-bottom:9px}}
+.depname{{width:36px;font-weight:800;font-size:12px;color:{C['navy']}}}
+.deptrack{{flex:1;height:8px;background:{C['card2']};border-radius:4px;overflow:hidden}}
+.depbar{{height:100%;border-radius:4px}}
+.depnum{{font-size:11px;color:{C['ink2']};width:104px;text-align:right;
+ font-variant-numeric:tabular-nums}}
+.arrow{{color:{C['mute']}}}
+
+/* ensemble */
+.ensrow{{display:flex;align-items:center;gap:10px;margin-bottom:7px;font-size:11.5px}}
+.enslab{{width:250px;color:{C['ink2']}}}
+.enslab em{{color:{C['brand']};font-style:normal;font-weight:700;font-size:10px}}
+.enstrack{{flex:1;height:2px;background:{C['grid']};position:relative}}
+.ensdot{{position:absolute;top:-4px;width:10px;height:10px;border-radius:50%;
+ background:{C['mute']};margin-left:-5px;border:2px solid {C['card']}}}
+.ensdot.p{{background:{C['brand']};width:14px;height:14px;top:-6px;margin-left:-7px}}
+.ensval{{width:44px;text-align:right;font-variant-numeric:tabular-nums;color:{C['navy']};
+ font-weight:600}}
+
+/* must see */
+.ms{{background:{C['card']};border:1px solid rgba(232,41,28,.28);border-radius:14px;
+ padding:18px 20px;position:relative;overflow:hidden;
+ box-shadow:0 1px 2px rgba(19,74,142,.05),0 2px 10px rgba(19,74,142,.04)}}
+.ms:before{{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:{C['red']}}}
+.ms h2{{color:{C['redtext']}}}
+.mstile{{display:flex;align-items:center;gap:14px;padding:11px 0;
+ border-top:1px solid {C['grid']}}}
+.mstile:first-of-type{{border-top:none}}
+.msrank{{width:26px;height:26px;flex:none;border-radius:7px;background:{C['red']};
+ color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;
+ justify-content:center}}
+.msbody{{flex:1}}
+.msdate{{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:{C['mute']};
+ font-weight:700}}
+.msmatch{{font-size:16px;font-weight:800;letter-spacing:-.01em;margin:1px 0 3px;
+ color:{C['navy']}}}
+.mswhy{{font-size:11.5px;color:{C['ink2']};line-height:1.4}}
+.msswing{{text-align:right;flex:none;width:78px}}
+.msswing b{{font-size:20px;font-weight:800;color:{C['red']};letter-spacing:-.02em}}
+.hint b{{color:{C['redtext']}}}
+.msswing span{{display:block;font-size:9px;color:{C['mute']};letter-spacing:.05em;
+ text-transform:uppercase;line-height:1.3;margin-top:2px}}
+
+.note{{font-size:10.5px;color:{C['ink2']};line-height:1.65;margin-top:14px}}
+.note b{{color:{C['navy']}}}
+details summary{{cursor:pointer;font-size:11px;color:{C['brand']};margin-top:10px;
+ font-weight:600}}
+details table{{margin-top:8px;font-size:11px}}
+.tscroll{{overflow-x:auto;-webkit-overflow-scrolling:touch}}
+/* grid children default to min-width:auto, which lets wide tables stretch the track
+   instead of scrolling inside it. This is what makes .tscroll actually work. */
+.hero>*,.grid2>*,.grid2b>*,.pnbody>*{{min-width:0}}
+
+/* live odds meter + delta */
+.meter{{height:7px;border-radius:4px;background:{C['card2']};overflow:hidden;margin:12px 0 9px}}
+.mfill{{height:100%;border-radius:4px;background:{C['brand']};width:0;
+ transition:width .42s cubic-bezier(.2,.7,.3,1)}}
+.livedelta{{font-size:11.5px;color:{C['mute']};min-height:17px;transition:color .3s}}
+.livedelta.up{{color:{C['good']};font-weight:700}}
+.livedelta.down{{color:{C['redtext']};font-weight:700}}
+.scenrow{{display:flex;gap:22px;margin-top:14px}}
+.sv{{display:block;font-size:22px;font-weight:800;letter-spacing:-.02em;color:{C['navy']};
+ font-variant-numeric:tabular-nums}}
+.sl{{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+ color:{C['mute']};margin-top:2px}}
+.card.scen{{border-color:rgba(232,41,28,.3)}}
+
+/* series picker - buttons must not look like the data badges that used to sit here */
+.presets{{display:flex;flex-wrap:wrap;gap:7px;margin-top:2px}}
+.ps{{font:inherit;font-size:11.5px;font-weight:700;color:{C['brand']};background:#fff;
+ border:1.5px solid rgba(19,74,142,.28);border-radius:20px;padding:7px 14px;cursor:pointer;
+ box-shadow:0 1px 0 rgba(19,74,142,.08);transition:all .13s}}
+.ps:hover{{background:{C['brand']};color:#fff;border-color:{C['brand']};
+ transform:translateY(-1px);box-shadow:0 3px 8px rgba(19,74,142,.25)}}
+.ps:focus-visible{{outline:3px solid rgba(232,41,28,.45);outline-offset:2px}}
+.pkg{{display:inline-flex;gap:4px}}
+button.pk{{font:inherit;font-size:11px;font-weight:700;letter-spacing:.01em;
+ color:{C['navy']};background:#fff;border:1.5px solid rgba(19,74,142,.28);
+ border-radius:7px;padding:7px 8px;cursor:pointer;min-width:46px;
+ box-shadow:0 1px 0 rgba(19,74,142,.10);
+ font-variant-numeric:tabular-nums;transition:all .12s}}
+button.pk.req{{background:#E7F0FB;border-color:rgba(19,74,142,.4)}}
+button.pk:hover{{color:{C['redtext']};border-color:{C['red']};background:#FFF3F2;
+ transform:translateY(-1px);box-shadow:0 3px 8px rgba(232,41,28,.2)}}
+button.pk.on{{background:{C['redtext']};color:#fff;border-color:{C['redtext']};
+ box-shadow:0 2px 7px rgba(218,33,21,.32)}}
+button.pk:focus-visible{{outline:3px solid rgba(232,41,28,.45);outline-offset:2px}}
+tr[data-series].locked td{{background:rgba(232,41,28,.055)}}
+tr[data-series].locked td:first-child{{box-shadow:inset 3px 0 0 {C['red']}}}
+tr[data-series].locked .lvwrap{{opacity:.32}}
+.hint{{font-size:11.5px;color:{C['ink2']};margin-bottom:12px;line-height:1.5}}
+.hint b{{color:{C['redtext']}}}
+@media(max-width:840px){{
+ .hero,.grid2,.grid2b{{grid-template-columns:1fr}}
+ .pnbody{{grid-template-columns:1fr;gap:18px}}
+ .pnodds{{border-right:none;border-bottom:1px solid {C['grid']};padding:0 0 14px}}
+ .hdr{{flex-wrap:wrap}} .hdr .rec{{margin-left:0}}
+ .enslab{{width:150px}}
+}}
+@media(max-width:560px){{
+ body{{padding:10px}}
+ .scenrow{{gap:16px}} .sv{{font-size:19px}}
+ button.pk{{min-width:42px;padding:8px 5px;font-size:10.5px}}
+ .pkg{{gap:3px}}
+ .panel{{padding:15px 14px 18px}}
+ .big{{font-size:52px}}
+ .sldval{{font-size:25px}} .sldpace{{display:none}}
+ .pnread{{gap:16px}} .perf{{margin-left:0;width:100%}}
+ .card,.ms,.hdr{{padding:15px 14px}}
+ .hdr h1{{font-size:20px}} .hdr .rec b{{font-size:25px}}
+ .big{{font-size:56px}} .statv{{font-size:34px}}
+ table{{font-size:11.5px}} td{{padding:6px 4px}} th{{padding:0 4px 7px}}
+ .hide-s{{display:none}}
+ .depnum{{width:88px;font-size:10px}}
+ .enslab{{width:128px;font-size:10.5px}}
+ .msswing{{width:62px}} .msswing b{{font-size:17px}}
+ .msmatch{{font-size:15px}}
+}}
+</style></head><body><div class="wrap">
+
+<div class="hdr">
+  <div>
+    <h1>TORONTO <span>BLUE JAYS</span> — PLAYOFF TRACKER</h1>
+    <div class="stamp">Standings through {STAMP} · {R['nsim']:,} simulated seasons</div>
+  </div>
+  <div class="rec">
+    <b>{W}–{L}</b>
+    <div>4th AL East · {GL} games left</div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="pnhead">
+    <h2>Play it out <span class="sub">&mdash; drag the slider to set how Toronto finishes</span></h2>
+    <span class="livetag">live</span>
+  </div>
+  <div class="pnbody">
+    <div class="pnodds">
+      <div class="big"><span id="liveOdds">{ODDS*100:.1f}</span><small>%</small></div>
+      <div class="oddscap">chance of a playoff spot</div>
+      <div class="meter"><div class="mfill" id="liveBar"></div></div>
+      <div class="livedelta" id="liveDelta">model baseline &mdash; nothing set yet</div>
+    </div>
+
+    <div class="pnctl">
+      <div class="sldtop">
+        <div><span class="sldval" id="sliderVal">&mdash;</span>
+             <span class="sldcap">rest-of-season record</span></div>
+        <div class="sldpace" id="sliderPace"></div>
+      </div>
+      <div class="sldwrap">
+        <input type="range" class="sld" id="winSlider" min="0" max="{GL}" step="1"
+               value="{int(round(PROJ-W))}"
+               aria-label="Rest-of-season wins for the Blue Jays, out of {GL} games">
+        <div class="sldticks">
+          <span class="tick start" style="left:0%"><i></i>0 wins</span>
+          <span class="tick need" style="left:{P['ros_needed_w']/GL*100:.1f}%"><i></i>needs {P['ros_needed_w']}</span>
+          <span class="tick end" style="left:100%"><i></i>{GL}</span>
+        </div>
+      </div>
+      <div class="presets">
+        <button type="button" data-preset="reset" class="ps">Reset</button>
+        <button type="button" data-preset="min" class="ps">Bare minimum</button>
+        <button type="button" data-preset="twoone" class="ps">2&ndash;1 every series</button>
+        <button type="button" data-preset="sweep" class="ps">Sweep everything</button>
+        <button type="button" data-preset="cold" class="ps">Slump (1&ndash;2 each)</button>
+      </div>
+      <div class="pnread">
+        <div><span class="sv" id="liveRec">&mdash;</span><span class="sl" id="liveRecSub">drag the slider, or tap a series below</span></div>
+        <div><span class="sv" id="liveProj">{PROJ:.1f}</span><span class="sl">projected wins</span></div>
+        <div><span class="sv" id="liveCut">{R['cut_wins']['mean']:.1f}</span><span class="sl">cut line</span></div>
+        <div class="perf" id="perfNote">simulating&hellip;</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h2>How solid is that number?</h2>
+    <div class="range">
+      <div class="rtrack">
+        <div class="rfill" style="left:{(LO-0.05)/0.14*100:.0f}%;width:{(HI-LO)/0.14*100:.0f}%"></div>
+        <div class="rtick" style="left:{(ODDS-0.05)/0.14*100:.0f}%"></div>
+      </div>
+      <div class="rlab"><span>{pct(LO)} floor</span>
+        <span>10-model range</span><span>{pct(HI)} ceiling</span></div>
+    </div>
+    <div class="statl" style="margin-top:12px">Ten model specifications, varying how much
+      run differential counts against raw W&ndash;L, how hard team strength is regressed,
+      whether recent form matters, and the size of home-field advantage. Every one lands
+      between {pct(LO)} and {pct(HI)}.</div>
+    {bref_pill}
+  </div>
+
+  <div class="card">
+    <h2>What it takes</h2>
+    <div class="statv">{P['ros_needed_w']}&ndash;{P['ros_needed_l']}</div>
+    <div class="statl">To reach <b>{CUT:.0f} wins</b>, the median cut line &mdash; a
+      <b>.{int(P['ros_needed_w']/GL*1000)}</b> pace over the last {GL} games. The Jays have
+      played .{int(W/(W+L)*1000)} ball all year, and win <b>{series_won:.1f}</b> of their
+      {P['n_series']} remaining series in the runs where they qualify.</div>
+    <div class="pill">Must not lose more than 4 series</div>
+  </div>
+</div>
+
+<div class="grid2b">
+  <div class="card">
+    <h2>The AL Wild Card race <span class="sub">— three spots, nine teams</span></h2>
+    <div class="tscroll"><table>
+      <thead><tr><th>Team</th><th style="text-align:right">W–L</th>
+        <th style="text-align:right">GB<br>of TOR</th><th style="text-align:right">Run<br>diff</th>
+        <th style="text-align:right" class="hide-s">Proj</th><th>Playoff odds</th></tr></thead>
+      <tbody>{wc_html}</tbody></table></div>
+    <div class="note">Division leaders (TB, CWS, HOU) are excluded — they occupy the
+      three automatic berths. <b>GB of TOR</b> is games ahead of Toronto: a positive
+      number is a team the Jays must pass.</div>
+  </div>
+
+  <div class="card">
+    <h2>How many wins is enough?</h2>
+    <svg viewBox="0 0 {CW} {CH}" width="100%" role="img"
+         aria-label="Probability of a playoff spot by final win total">
+      {gridlines}
+      <polygon points="{area}" fill="{C['blue']}" opacity="0.13"/>
+      <polyline points="{pts}" fill="none" stroke="{C['blue']}" stroke-width="2"
+        stroke-linejoin="round" stroke-linecap="round"/>
+      {cutline}{dots}{xticks}
+      <line id="scenMark" x1="0" x2="0" y1="{PADT+26}" y2="{CH-PADB}" stroke="{C['scen']}"
+        stroke-width="2" style="opacity:0;transition:opacity .3s"/>
+      <text id="scenMarkLab" x="0" y="{PADT+16}" font-size="10" font-weight="800"
+        fill="{C['redtext']}" stroke="#FFFFFF" stroke-width="3.5" paint-order="stroke"
+        stroke-linejoin="round" style="opacity:0;transition:opacity .3s"></text>
+      {hover}
+      <line x1="{PADL}" x2="{CW-PADR}" y1="{py(0):.1f}" y2="{py(0):.1f}"
+        stroke="{C['axis']}" stroke-width="1"/>
+      <text x="{CW/2:.0f}" y="{CH-4}" text-anchor="middle" font-size="10"
+        fill="{C['mute']}" letter-spacing="1">FINAL WIN TOTAL</text>
+    </svg>
+    <div class="note">The curve is brutally steep. <b>81 wins is a {curve[R['wins_10']][0]*100:.0f}% proposition;
+      85 wins is a {curve[R['wins_90']][0]*100:.0f}% one.</b> Every single win between
+      81 and 85 is worth roughly 20 points of playoff probability — which is why the
+      leverage numbers below are so large this early.</div>
+    <details><summary>Show the table</summary>
+      <table><thead><tr><th>Final wins</th><th>Rest-of-season</th>
+        <th style="text-align:right">Playoff odds</th></tr></thead><tbody>
+        {"".join(f'<tr><td>{w}</td><td class="gb">{w-W}–{GL-(w-W)}</td>'
+                 f'<td style="text-align:right">{curve[w][0]*100:.1f}%</td></tr>'
+                 for w in xs)}
+      </tbody></table></details>
+  </div>
+</div>
+
+<div class="grid2b">
+  <div class="card">
+    <h2>The road map <span class="sub">&mdash; set any series yourself</span></h2>
+    <div class="hint"><b>Tap any result below</b> to lock what the Jays do in that series
+      &mdash; it turns red, the whole simulation re-runs, and the slider above moves to
+      match. Rivals' records change too, because a Jays win is also an opponent's loss. Tap
+      a red button again to hand that series back to the model. The lightly shaded button in
+      each row is what the model says they need.</div>
+    <noscript><div class="hint">The scenario picker needs JavaScript. Everything below is
+      still the model baseline.</div></noscript>
+    <div class="tscroll"><table>
+      <thead><tr><th>Dates</th><th>Opponent</th><th>Tap to set</th>
+        <th style="text-align:right">Need</th><th style="text-align:right" class="hide-s">Exp</th>
+        <th>Swing</th></tr></thead>
+      <tbody>{series_rows}</tbody></table></div>
+    <div class="note"><b>Need</b> is the average number of wins Toronto takes from that
+      series in the simulated seasons where they qualify; <b>Exp</b> is what the model
+      actually expects them to win. <b>The gap between those two columns is the whole
+      problem</b> — the Jays are projected to win about 1.4 of 3 in the hard series and
+      need close to 2 in every single one, all thirteen of them, including on the road
+      in Tampa and the Bronx. <b>Swing</b> is the gap in playoff odds between taking a
+      series and losing it.</div>
+  </div>
+
+  <div class="card">
+    <h2>Scoreboard watching <span class="sub">— who to root against</span></h2>
+    {dep_rows}
+    <div class="note">Bar length is how much the Jays' odds move between a rival's
+      cold finish (25th percentile) and hot finish (75th). <b>Detroit is the single
+      most important other team in baseball</b> for Toronto — an 8.5-point swing,
+      and the Jays get three head-to-head games with them in September.</div>
+
+    <h2 style="margin-top:20px">Model sensitivity <span class="sub">— is 8% real?</span></h2>
+    {ens_rows}
+    <div class="note">Ten specifications, varying how much weight run differential gets
+      against raw W–L, how hard team strength is regressed, whether recent form counts,
+      and the size of home-field advantage. <b>Every one lands between {pct(LO)} and
+      {pct(HI)}.</b> The number is low because of the run differential, and no
+      reasonable modelling choice rescues it.</div>
+  </div>
+</div>
+
+<div class="ms">
+  <h2>Must-see TV <span class="sub">— the five games that decide the season</span></h2>
+  {mustsee_rows}
+</div>
+
+<div class="note">
+<b>Method.</b> Team strength is Pythagenpat expected win% (exponent = runs-per-game<sup>0.287</sup>)
+blended 80/20 with actual W–L, then regressed toward .500 with a 68-game prior. Every
+remaining game on the real MLB schedule is simulated with a log5 matchup probability plus
+home-field advantage (.535), {R['nsim']:,} seasons, full AL field with three division
+winners and three wild cards. All conditional numbers — series targets, per-game leverage,
+rival dependency — are read off the same set of simulated seasons, so they are mutually
+consistent. <b>The scenario picker</b> re-runs this same model live in your browser (14,000 seasons a
+click) rather than reading a number off the curve above. That matters: locking a Jays win
+also locks the opponent's loss, and 12 of the 39 remaining games are against teams in the
+wild-card cluster — so going 24&ndash;15 is worth a little more than "83 wins" on its own
+implies. <b>Known limits:</b> ties are broken at random rather than by head-to-head; the
+model knows run differential, not injuries, rotations or September call-ups. The
+Rangers&ndash;Angels postponement that previously left both clubs a game short was played
+on Aug 13 (Angels 7, Rangers 0), so the schedule now reconciles to 162 for all 15 AL clubs
+straight from the feed. Data: MLB Stats API. Comparison odds: Baseball-Reference.
+{bref_note_open} Toronto has won
+about {abs(int(W - R['pythag_record'][JAYS][0]))} more games than their run differential
+supports — the largest overperformance in the wild-card cluster — and this model leans
+harder on run differential than theirs does.
+</div>
+
+<div class="note" style="margin-top:10px;color:{C['mute']}">
+Generated {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')} · updates nightly at 10pm ET ·
+not affiliated with or endorsed by the Toronto Blue Jays or MLB
+</div>
+
+</div>
+<script>window.__SIM__={SIMJSON};</script>
+<script>{APPJS}</script>
+</body></html>"""
+
+open("tracker.html", "w").write(HTML)
+print(f"wrote tracker.html ({len(HTML):,} bytes)")

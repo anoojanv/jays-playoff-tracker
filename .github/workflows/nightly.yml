@@ -1,0 +1,79 @@
+name: Nightly tracker build & deploy
+
+on:
+  schedule:
+    # 02:07 UTC = 10:07pm Eastern Daylight Time, after the Jays' game has finished.
+    # (A few minutes past the hour on purpose — GitHub's scheduler is busiest at :00
+    # and delays runs that pile up there.)
+    - cron: "7 2 * * *"
+  push:
+    branches: [main]          # so the very first push proves the setup end to end
+    paths-ignore: ["README.md"]
+  workflow_dispatch:          # lets you run it on demand from the Actions tab
+    inputs:
+      no_deploy:
+        description: "Build only, do not publish"
+        type: boolean
+        default: false
+
+concurrency:
+  group: tracker
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build the tracker
+        env:
+          SEASON: "2026"
+          SEASON_END: "2026-10-04"
+        run: python src/build.py
+
+      - name: Upload the page as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracker-${{ github.run_number }}
+          path: public/index.html
+          retention-days: 14
+
+      - name: Deploy to Netlify
+        if: ${{ github.event_name == 'schedule' || inputs.no_deploy != true }}
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ vars.NETLIFY_SITE_ID || '0a3e85c0-7356-4468-9b79-3d97c57dce8c' }}
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ]; then
+            echo "::error::NETLIFY_AUTH_TOKEN secret is not set — see README step 3."
+            exit 1
+          fi
+          npx --yes netlify-cli@17 deploy \
+            --prod \
+            --dir public \
+            --site "$NETLIFY_SITE_ID" \
+            --message "nightly build ${{ github.run_number }}"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Blue Jays tracker"
+            echo ""
+            if [ -f public/index.html ]; then
+              echo "- Built \`public/index.html\` ($(du -h public/index.html | cut -f1))"
+            else
+              echo "- Build failed — nothing published"
+            fi
+            echo "- Live: https://jays-playoff-tracker.netlify.app"
+          } >> "$GITHUB_STEP_SUMMARY"
