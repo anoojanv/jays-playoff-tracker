@@ -8,7 +8,7 @@ progress when the nightly build runs.
 
 Run:  python src/selftest_fetch.py
 """
-import json, os, sys, datetime, importlib.util, urllib.parse
+import json, os, sys, shutil, tempfile, datetime, importlib.util, urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -17,11 +17,14 @@ spec = importlib.util.spec_from_file_location("fd", os.path.join(HERE, "fetch_da
 fd = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fd)
 
-# ---- a realistic world: current records + the real remaining schedule -----------------
-_fixture = os.path.join(ROOT, "build", "data.json")
+# ---- a realistic world: a frozen, committed set of records and a remaining schedule ----
+# This used to read build/data.json, which is gitignored — so in a fresh clone (and in
+# CI) the fixture was always absent and the whole test exited 0 without running. It now
+# reads a committed fixture and treats a missing one as a failure.
+_fixture = os.path.join(ROOT, "tests", "fixture_data.json")
 if not os.path.exists(_fixture):
-    print("selftest skipped: no build/data.json fixture yet (run src/build.py once)")
-    raise SystemExit(0)
+    sys.exit(f"FATAL: fixture missing: {_fixture}\n"
+             "  Regenerate it with: python tests/make_fixture.py")
 BASE = json.load(open(_fixture))
 AL, NL, GAMES = BASE["AL"], BASE["NL"], [tuple(g) for g in BASE["GAMES"]]
 
@@ -83,13 +86,15 @@ def main():
     # pretend it is 02:07 UTC on Aug 15 — i.e. 10:07pm ET on Aug 14, the real cron moment
     os.environ["AS_OF_OVERRIDE"] = "2026-08-15"
 
-    out = os.path.join(ROOT, "build", "data.json")
-    backup = json.load(open(out))
+    # write somewhere disposable rather than clobbering the real build/data.json and
+    # restoring it afterwards, which lost the file outright if the run died mid-test
+    tmp = tempfile.mkdtemp(prefix="jays-selftest-")
+    fd.OUT = os.path.join(tmp, "data.json")
     try:
         fd.main()
-        got = json.load(open(out))
+        got = json.load(open(fd.OUT))
     finally:
-        json.dump(backup, open(out, "w"), indent=1)
+        shutil.rmtree(tmp, ignore_errors=True)
 
     fails = []
     if got["as_of"] != "2026-08-14":
