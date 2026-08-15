@@ -33,6 +33,23 @@ SHORT = {
     "Colorado Rockies": "Rockies",
 }
 
+# The MLB API is not consistent about team names: the standings endpoint returns the
+# short name ("Rays") while the schedule endpoint returns the full one ("Tampa Bay
+# Rays"). canon() accepts either so neither endpoint can break the build.
+CANON = set(SHORT.values())
+
+
+def canon(name):
+    if name in CANON:
+        return name
+    if name in SHORT:
+        return SHORT[name]
+    raise SystemExit(
+        f"FATAL: unrecognised team name from the MLB API: {name!r}\n"
+        "  Add it to the SHORT map in src/fetch_data.py (a club was probably renamed)."
+    )
+
+
 DIVISIONS = {
     "AL East":    ["Rays", "Yankees", "Red Sox", "Blue Jays", "Orioles"],
     "AL Central": ["White Sox", "Tigers", "Twins", "Guardians", "Royals"],
@@ -67,7 +84,7 @@ def standings(league_id):
     out = {}
     for rec in get(url)["records"]:
         for t in rec["teamRecords"]:
-            name = SHORT[t["team"]["name"]]
+            name = canon(t["team"]["name"])
             out[name] = {
                 "w": t["wins"], "l": t["losses"], "gp": t["gamesPlayed"],
                 "rs": int(t["runsScored"]), "ra": int(t["runsAllowed"]),
@@ -76,12 +93,14 @@ def standings(league_id):
     return out
 
 
-def schedule(team_id, start):
+def schedule(team_id, start, final_dates):
     url = (f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&teamId={team_id}"
            f"&startDate={start}&endDate={SEASON_END}")
     games = []
     for d in get(url).get("dates", []):
         for g in d.get("games", []):
+            if g.get("status", {}).get("codedGameState") == "F":
+                final_dates.add(d["date"])
             # Keep only games still to be played. F = final, C = cancelled,
             # D = postponed (the makeup shows up separately with its own date).
             # If this filter is ever wrong the 162-game check below fails the build
@@ -89,8 +108,8 @@ def schedule(team_id, start):
             if g.get("status", {}).get("codedGameState") in ("F", "C", "D"):
                 continue
             games.append((d["date"],
-                          SHORT[g["teams"]["away"]["team"]["name"]],
-                          SHORT[g["teams"]["home"]["team"]["name"]]))
+                          canon(g["teams"]["away"]["team"]["name"]),
+                          canon(g["teams"]["home"]["team"]["name"])))
     return games
 
 
@@ -114,17 +133,24 @@ def bref_odds():
 
 
 def main():
-    today = os.environ.get("AS_OF_OVERRIDE") or datetime.date.today().isoformat()
-    print(f"fetching {SEASON} data, schedule from {today} to {SEASON_END}")
+    # A runner's clock is UTC, so at 10pm Eastern it is already tomorrow. Start the
+    # schedule window two days back: anything already final is filtered out below, and
+    # this guarantees a game still in progress somewhere is counted as "still to play"
+    # — which is what the standings assume too, so the 162 check stays consistent.
+    today = datetime.date.fromisoformat(
+        os.environ["AS_OF_OVERRIDE"]) if os.environ.get("AS_OF_OVERRIDE") \
+        else datetime.datetime.now(datetime.timezone.utc).date()
+    start = (today - datetime.timedelta(days=2)).isoformat()
+    print(f"fetching {SEASON} data, schedule from {start} to {SEASON_END} (UTC today {today})")
 
     al = standings(103)
     nl = standings(104)
     print(f"  standings: {len(al)} AL, {len(nl)} NL teams")
 
     # union every AL club's remaining schedule; an AL-vs-AL game appears in both feeds
-    counter = {}
+    counter, final_dates = {}, set()
     for tid in AL_IDS:
-        for g in schedule(tid, today):
+        for g in schedule(tid, start, final_dates):
             counter[g] = counter.get(g, 0) + 1
     games = []
     for (date, away, home), n in counter.items():
@@ -153,12 +179,11 @@ def main():
         raise SystemExit(1)
     print("  reconciled: all 15 AL clubs at 162 games")
 
-    # as-of = the date of the last completed games, not today
-    as_of = min((datetime.date.fromisoformat(g[0]) for g in games),
-                default=datetime.date.fromisoformat(today)) - datetime.timedelta(days=1)
+    # as-of = the most recent day on which a game actually finished, not today
+    as_of = max(final_dates) if final_dates else (today - datetime.timedelta(days=1)).isoformat()
 
     data = {
-        "season": SEASON, "as_of": as_of.isoformat(), "generated": datetime.datetime.now(
+        "season": SEASON, "as_of": as_of, "generated": datetime.datetime.now(
             datetime.timezone.utc).isoformat(timespec="seconds"),
         "AL": {k: [v["w"], v["l"], v["rs"], v["ra"]] for k, v in al.items()},
         "NL": {k: [v["w"], v["l"], v["rs"], v["ra"]] for k, v in nl.items()},

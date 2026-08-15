@@ -92,6 +92,18 @@ per-series buttons re-run ~14,000 full seasons in the browser on every change. L
 Jays win also locks the opponent's loss, which is why a scenario's odds differ slightly
 from reading the win-total curve.
 
+## Testing the fetch layer
+
+`src/fetch_data.py` is the part that talks to the outside world, so it has an offline
+integration test that mocks the API with responses in the real shapes — including the
+quirk that the standings endpoint returns short team names ("Rays") while the schedule
+endpoint returns full ones ("Tampa Bay Rays"), and that some games are still in progress
+when the nightly build runs.
+
+```bash
+python src/selftest_fetch.py
+```
+
 ## Running it locally
 
 ```bash

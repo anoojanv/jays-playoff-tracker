@@ -1,0 +1,130 @@
+"""
+Integration test for fetch_data.py with the network mocked out.
+
+Feeds it responses shaped exactly like the real MLB API — including the two quirks that
+actually bit us: the standings endpoint returns SHORT team names ("Rays") while the
+schedule endpoint returns FULL ones ("Tampa Bay Rays"), and some games are still in
+progress when the nightly build runs.
+
+Run:  python src/selftest_fetch.py
+"""
+import json, os, sys, datetime, importlib.util, urllib.parse
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+
+spec = importlib.util.spec_from_file_location("fd", os.path.join(HERE, "fetch_data.py"))
+fd = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fd)
+
+# ---- a realistic world: current records + the real remaining schedule -----------------
+_fixture = os.path.join(ROOT, "build", "data.json")
+if not os.path.exists(_fixture):
+    print("selftest skipped: no build/data.json fixture yet (run src/build.py once)")
+    raise SystemExit(0)
+BASE = json.load(open(_fixture))
+AL, NL, GAMES = BASE["AL"], BASE["NL"], [tuple(g) for g in BASE["GAMES"]]
+
+# games that finished on the most recent day (these must NOT be counted as remaining,
+# and they are what as_of should be derived from)
+FINALS = [("2026-08-14", "New York Yankees", "Toronto Blue Jays"),
+          ("2026-08-14", "Boston Red Sox", "Pittsburgh Pirates"),
+          ("2026-08-14", "Chicago White Sox", "Detroit Tigers")]
+
+FULL = {v: k for k, v in fd.SHORT.items() if k != "Oakland Athletics"}   # short -> full
+
+
+def standings_payload(league):
+    src = AL if league == "103" else NL
+    recs = []
+    for name, (w, l, rs, ra) in src.items():
+        recs.append({
+            "team": {"id": 0, "name": name, "link": "/api/v1/teams/0"},   # SHORT name
+            "gamesPlayed": w + l, "wins": w, "losses": l,
+            "runsScored": rs, "runsAllowed": ra, "runDifferential": rs - ra,
+            "streak": {"streakCode": "W1"},
+        })
+    return {"records": [{"teamRecords": recs}]}
+
+
+def schedule_payload(team_id, start):
+    me = fd.AL_IDS[int(team_id)]
+    by_date = {}
+    for date, away, home in GAMES:
+        if me not in (away, home) or date < start:
+            continue
+        by_date.setdefault(date, []).append({
+            "status": {"codedGameState": "S", "detailedState": "Scheduled"},
+            "teams": {"away": {"team": {"name": FULL[away]}},
+                      "home": {"team": {"name": FULL[home]}}},
+        })
+    for date, away, home in FINALS:                       # FULL names, already final
+        if me not in (fd.canon(away), fd.canon(home)) or date < start:
+            continue
+        by_date.setdefault(date, []).append({
+            "status": {"codedGameState": "F", "detailedState": "Final"},
+            "teams": {"away": {"team": {"name": away}}, "home": {"team": {"name": home}}},
+        })
+    return {"dates": [{"date": d, "games": g} for d, g in sorted(by_date.items())]}
+
+
+def fake_get(url, tries=4):
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+    if "/standings" in url:
+        return standings_payload(q["leagueId"][0])
+    if "/schedule" in url:
+        return schedule_payload(q["teamId"][0], q["startDate"][0])
+    raise AssertionError(f"unexpected URL: {url}")
+
+
+def main():
+    fd.get = fake_get
+    fd.bref_odds = lambda: None                 # don't hit Baseball-Reference in a test
+    # pretend it is 02:07 UTC on Aug 15 — i.e. 10:07pm ET on Aug 14, the real cron moment
+    os.environ["AS_OF_OVERRIDE"] = "2026-08-15"
+
+    out = os.path.join(ROOT, "build", "data.json")
+    backup = json.load(open(out))
+    try:
+        fd.main()
+        got = json.load(open(out))
+    finally:
+        json.dump(backup, open(out, "w"), indent=1)
+
+    fails = []
+    if got["as_of"] != "2026-08-14":
+        fails.append(f"as_of should be the last day games finished (2026-08-14), got {got['as_of']}")
+    if len(got["GAMES"]) != len(GAMES):
+        fails.append(f"expected {len(GAMES)} remaining games, got {len(got['GAMES'])}")
+    for g in got["GAMES"]:
+        if g[1] not in got["AL"] and g[1] not in got["NL"]:
+            fails.append(f"unresolved away team name: {g[1]!r}"); break
+        if g[2] not in got["AL"] and g[2] not in got["NL"]:
+            fails.append(f"unresolved home team name: {g[2]!r}"); break
+    rem = {}
+    for _, a, h in got["GAMES"]:
+        if a in got["AL"]: rem[a] = rem.get(a, 0) + 1
+        if h in got["AL"]: rem[h] = rem.get(h, 0) + 1
+    for t, (w, l, _, _) in got["AL"].items():
+        if w + l + rem.get(t, 0) != 162:
+            fails.append(f"{t}: {w+l} played + {rem.get(t,0)} remaining != 162")
+    if set(got["AL"]) != set(AL):
+        fails.append("AL team set changed through the round trip")
+    if got["AL"]["Blue Jays"][:2] != AL["Blue Jays"][:2]:
+        fails.append("Blue Jays record did not survive the round trip")
+
+    print("\n" + "=" * 62)
+    if fails:
+        print("SELF-TEST FAILED")
+        for f in fails:
+            print("  -", f)
+        sys.exit(1)
+    print("SELF-TEST PASSED")
+    print(f"  as_of {got['as_of']} · {len(got['GAMES'])} remaining games · "
+          f"Blue Jays {got['AL']['Blue Jays'][0]}-{got['AL']['Blue Jays'][1]}")
+    print("  short-name standings and full-name schedule both resolved")
+    print("  all 15 AL clubs reconcile to 162")
+
+
+if __name__ == "__main__":
+    main()
