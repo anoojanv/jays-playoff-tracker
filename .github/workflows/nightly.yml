@@ -1,14 +1,20 @@
-name: Nightly tracker build & deploy
+name: Tracker build & deploy
 
 on:
   schedule:
-    # 02:07 UTC = 10:07pm Eastern Daylight Time, after the Jays' game has finished.
-    # (A few minutes past the hour on purpose — GitHub's scheduler is busiest at :00
-    # and delays runs that pile up there.)
-    - cron: "7 2 * * *"
+    # Poll every 30 minutes from 4pm to 2am Eastern — the window in which games actually
+    # finish, from afternoon starts through West Coast nights that end around 1am. Times
+    # are UTC and the season runs on EDT (UTC-4), so 4pm–2am ET is 20:00–06:00 UTC and
+    # wraps midnight. Offset to :07/:37 on purpose: GitHub's scheduler is busiest on the
+    # hour and delays runs that pile up there.
+    - cron: "7,37 20-23 * * *"
+    - cron: "7,37 0-5 * * *"
+    # One guaranteed full rebuild a day at 3:13am Eastern (07:13 UTC), which runs whether
+    # or not anything changed, so the Baseball-Reference comparison stays fresh.
+    - cron: "13 7 * * *"
   push:
     branches: [main]          # so the very first push proves the setup end to end
-    paths-ignore: ["README.md"]
+    paths-ignore: ["README.md", "LICENSE"]
   workflow_dispatch:          # lets you run it on demand from the Actions tab
     inputs:
       no_deploy:
@@ -20,6 +26,13 @@ concurrency:
   group: tracker
   cancel-in-progress: false
 
+permissions:
+  contents: read              # the job never writes to the repo
+
+env:
+  SEASON: "2026"
+  SEASON_END: "2026-10-04"
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -28,20 +41,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The cheap poll. Deliberately before setup-python and pip: check_changed.py is
+      # standard library only, so a poll that finds nothing new is a checkout and a
+      # couple of seconds of stdlib Python — no toolchain, no numpy.
+      - name: Has anything finished since the last publish?
+        id: check
+        env:
+          SITE_URL: https://jays-playoff-tracker.netlify.app
+          # anything that is not a polling tick rebuilds unconditionally
+          FORCE_BUILD: ${{ (github.event_name != 'schedule' || github.event.schedule == '13 7 * * *') && 'true' || '' }}
+        run: python3 src/check_changed.py
+
       - uses: actions/setup-python@v5
+        if: steps.check.outputs.changed == 'true'
         with:
           python-version: "3.12"
 
       - name: Install dependencies
+        if: steps.check.outputs.changed == 'true'
         run: pip install -r requirements.txt
 
       - name: Build the tracker
-        env:
-          SEASON: "2026"
-          SEASON_END: "2026-10-04"
+        if: steps.check.outputs.changed == 'true'
         run: python src/build.py
 
       - name: Upload the page as an artifact
+        if: steps.check.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: tracker-${{ github.run_number }}
@@ -49,7 +74,9 @@ jobs:
           retention-days: 14
 
       - name: Deploy to Netlify
-        if: ${{ github.event_name == 'schedule' || inputs.no_deploy != true }}
+        if: >-
+          steps.check.outputs.changed == 'true' &&
+          (github.event_name != 'workflow_dispatch' || inputs.no_deploy != true)
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ vars.NETLIFY_SITE_ID || '0a3e85c0-7356-4468-9b79-3d97c57dce8c' }}
@@ -62,7 +89,7 @@ jobs:
             --prod \
             --dir public \
             --site "$NETLIFY_SITE_ID" \
-            --message "nightly build ${{ github.run_number }}"
+            --message "build ${{ github.run_number }}"
 
       - name: Summary
         if: always()
@@ -70,7 +97,9 @@ jobs:
           {
             echo "### Blue Jays tracker"
             echo ""
-            if [ -f public/index.html ]; then
+            if [ "${{ steps.check.outputs.changed }}" != "true" ]; then
+              echo "- No games have finished since the last publish — skipped the build."
+            elif [ -f public/index.html ]; then
               echo "- Built \`public/index.html\` ($(du -h public/index.html | cut -f1))"
             else
               echo "- Build failed — nothing published"

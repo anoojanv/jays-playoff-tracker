@@ -48,7 +48,7 @@ takes precedence.
 
 Pushing in step 1 already kicked off a build — but it would have failed at the deploy
 step, because the token wasn't set yet. Now that it is, re-run it: repo → **Actions** →
-the latest run → **Re-run all jobs**. (Or **Nightly tracker build & deploy** → **Run
+the latest run → **Re-run all jobs**. (Or **Tracker build & deploy** → **Run
 workflow**.)
 
 It takes 2–3 minutes. Watch the log: it prints the record it fetched, confirms all 15 AL
@@ -72,11 +72,21 @@ republishes.
 There is also one guaranteed full rebuild a day at **3:13am Eastern**, which runs whether
 or not anything changed, so the Baseball-Reference comparison stays fresh.
 
+That is twenty polling ticks a day (`7,37 20-23` and `7,37 0-5` UTC) plus the 07:13 UTC
+rebuild. The poll runs *before* `setup-python` and before `pip install`, because
+`check_changed.py` is standard library only — so a tick that finds nothing new is a
+checkout and a couple of seconds of Python, and never installs a toolchain.
+
+The cron times are UTC and assume Eastern Daylight Time (UTC-4). The regular season ends
+in early October, well before the November switch back to EST, so the window does not
+drift; if you ever run this past that date, shift all three crons an hour later.
+
 **Cost.** GitHub bills each job rounded up to a whole minute, and a private repo gets
-2,000 free minutes a month. Twenty cheap polls a day plus roughly ten real rebuilds works
-out around **1,300 minutes a month**, leaving decent headroom. If you ever get close, the
-lever is the polling window in `.github/workflows/nightly.yml` — narrow the hours before
-you lengthen the interval, since most games finish late.
+2,000 free minutes a month. Roughly ten real rebuilds a day at ~3 minutes, plus eleven
+ticks that skip at ~1 minute, works out around **1,200-1,400 minutes a month**, leaving
+decent headroom. If you ever get close, the lever is the polling window in
+`.github/workflows/nightly.yml` — narrow the hours before you lengthen the interval,
+since most games finish late.
 
 Bear in mind GitHub's scheduler is best-effort: **delays of 5 to 30 minutes are common**
 at peak times. So "within 30 minutes of a game ending" is realistically 30-60.
@@ -89,7 +99,8 @@ at peak times. So "within 30 minutes of a game ending" is realistically 30-60.
 |---|---|
 | `src/check_changed.py` | The cheap poll: is anything new since the last publish? Standard library only, no pip install |
 | `src/fetch_data.py` | Pulls AL + NL standings and every AL club's remaining schedule from the MLB Stats API, dedupes games that appear in two clubs' feeds, and **refuses to continue unless all 15 AL teams reconcile to exactly 162 games** |
-| `src/sim.py` | 120,000-season Monte Carlo of the rest of the AL |
+| `src/model.py` | Talent, schedule and the Monte Carlo itself. Imported by the three scripts below, which all read the **same** simulated seasons rather than each running their own |
+| `src/sim.py` | Runs the 120,000-season Monte Carlo of the rest of the AL and writes `results.json` |
 | `src/ensemble.py` | 10 model specifications, for the sensitivity range |
 | `src/analyze.py` | Per-series requirements and leverage |
 | `src/export_sim.py` | ~9 KB model bundle for the in-browser simulator |
@@ -117,18 +128,29 @@ per-series buttons re-run ~14,000 full seasons in the browser on every change. L
 Jays win also locks the opponent's loss, which is why a scenario's odds differ slightly
 from reading the win-total curve.
 
-## Testing the fetch layer
+## Tests
 
-`src/fetch_data.py` is the part that talks to the outside world, so it has an offline
-integration test that mocks the API with responses in the real shapes — including the
-quirk that the standings endpoint returns short team names ("Rays") while the schedule
-endpoint returns full ones ("Tampa Bay Rays"), and that some games are still in progress
-when the nightly build runs.
+Everything is offline: the two parts that talk to the outside world are stubbed, and both
+tests run against `tests/fixture_data.json` — a committed, synthetic world rather than a
+snapshot of a real day. A snapshot rots (the schedule empties, the records stop matching)
+and cannot be regenerated without network access; the fixture is built by
+`tests/make_fixture.py`, which generates the schedule first and then sets each club's
+games-played to 162 minus what it has left, so it reconciles by construction.
 
 ```bash
 python src/selftest_fetch.py    # the MLB fetch, with the network mocked
-python src/selftest_check.py    # the polling decision, all five paths
+python src/selftest_check.py    # the polling decision, all six paths
+python tests/make_fixture.py    # rebuild the fixture (must be byte-identical; CI checks)
 ```
+
+`selftest_fetch.py` covers the two quirks that actually bit us: the standings endpoint
+returns short team names ("Rays") while the schedule endpoint returns full ones ("Tampa
+Bay Rays"), and some games are still in progress when the build runs. `selftest_check.py`
+drives the real `live_fingerprint()` over a stubbed HTTP call, so the regex that reads the
+meta tag out of the published page is genuinely exercised.
+
+`.github/workflows/tests.yml` runs all of it on every push and pull request — not on the
+nightly schedule, so it costs nothing against the polling budget.
 
 ## Running it locally
 
@@ -137,6 +159,13 @@ pip install -r requirements.txt
 python src/build.py              # fetch fresh data, then build
 python src/build.py --no-fetch   # rebuild from the last build/data.json
 open public/index.html
+```
+
+No network? Build against the test fixture instead — this is exactly what CI does:
+
+```bash
+mkdir -p build && cp tests/fixture_data.json build/data.json
+python src/build.py --no-fetch
 ```
 
 ## When something breaks
@@ -152,8 +181,14 @@ its markup the pill just disappears; the build still succeeds. Fix the regex in
 
 **Deploy step fails with "NETLIFY_AUTH_TOKEN is not set"** — step 3 above.
 
-**Season's over** — the workflow keeps running and will start failing once the schedule
-is empty. Disable it in the Actions tab, or delete the repo.
+**"SEASON COMPLETE: no games remain"** — the season is over, so there is nothing left to
+simulate. The build stops on purpose rather than crashing partway through. Disable the
+workflow in the Actions tab, or bump `SEASON` and `SEASON_END` in
+`.github/workflows/nightly.yml` for next year.
+
+**A test fails with "fixture missing"** — regenerate it with `python tests/make_fixture.py`.
+If CI says the fixture is *stale*, the generator changed without the committed JSON being
+updated; re-run it and commit the result.
 
 ## Notes
 
