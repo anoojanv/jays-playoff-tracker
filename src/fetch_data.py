@@ -65,6 +65,18 @@ SYNTHETIC_GAMES = [
 ]
 
 
+def fingerprint(al, nl):
+    """Stable hash of every club's record. Any finished game changes it."""
+    import hashlib
+    parts = []
+    for src in (al, nl):
+        for name in sorted(src):
+            v = src[name]
+            w, l, rs, ra = (v["w"], v["l"], v["rs"], v["ra"]) if isinstance(v, dict) else v
+            parts.append(f"{name}:{w}-{l}-{rs}-{ra}")
+    return hashlib.sha1("|".join(parts).encode()).hexdigest()[:16]
+
+
 def get(url, tries=4):
     last = None
     for i in range(tries):
@@ -189,6 +201,7 @@ def main():
         "NL": {k: [v["w"], v["l"], v["rs"], v["ra"]] for k, v in nl.items()},
         "DIVISIONS": DIVISIONS, "GAMES": games, "BREF": bref_odds(),
         "SYNTHETIC": [list(g) for g in SYNTHETIC_GAMES],
+        "fingerprint": fingerprint(al, nl),
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:

@@ -279,6 +279,7 @@ HTML = f"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Blue Jays Playoff Tracker — {DATE.strftime('%b %-d, %Y')}</title>
 <meta name="robots" content="noindex,nofollow">
+<meta name="data-fingerprint" content="{_D.FINGERPRINT}">
 <meta name="theme-color" content="{C['brand']}">
 <meta name="description" content="Toronto {W}–{L}. {ODDS*100:.1f}% to reach the playoffs. What it takes: {P['ros_needed_w']}–{P['ros_needed_l']} the rest of the way, {series_won:.0f} of {P['n_series']} remaining series. Updated {DATE.strftime('%b %-d')}.">
 <meta property="og:type" content="website">
@@ -749,7 +750,8 @@ harder on run differential than theirs does.
 </div>
 
 <div class="note" style="margin-top:10px;color:{C['mute']}">
-Generated {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')} · updates nightly at 10pm ET ·
+Generated {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC ·
+rebuilt nightly once every game has finished ·
 not affiliated with or endorsed by the Toronto Blue Jays or MLB
 </div>
 

@@ -39,6 +39,11 @@ def verify(path):
             problems.append(f"missing expected content: {needle!r}")
     if "localStorage" in html:
         problems.append("uses localStorage")
+    # the polling check compares this against the live page; an empty one would make
+    # every poll rebuild, silently throwing away the whole point of the cheap check
+    fp = re.search(r'<meta name="data-fingerprint" content="([^"]*)"', html)
+    if not fp or not fp.group(1).strip():
+        problems.append("data fingerprint is missing or empty")
     if problems:
         sys.exit("FAILED verification:\n  - " + "\n  - ".join(problems))
     print(f"  verified: {len(html)/1024:.0f} KB, self-contained, interactive markup present")

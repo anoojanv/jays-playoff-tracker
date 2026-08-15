@@ -13,3 +13,4 @@ NL        = {k: tuple(v) for k, v in _D["NL"].items()}
 DIVISIONS = _D["DIVISIONS"]
 GAMES     = [tuple(g) for g in _D["GAMES"]]
 BREF      = _D.get("BREF")
+FINGERPRINT = _D.get("fingerprint", "")
