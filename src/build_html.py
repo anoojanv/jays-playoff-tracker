@@ -15,6 +15,42 @@ GL = R["games_left"]
 CUT = R["cut_wins"]["p50"]
 PROJ = R["proj_wins"]["mean"]
 
+# ---- every factual claim the prose makes, derived rather than typed ----
+# These used to be literals ("12 of the 39 remaining games", "24-15", "83 wins", a whole
+# sentence about a postponement) — true the day they were written, wrong every night
+# after it. Anything asserted on the page is now computed from the current build.
+CLUSTER = R.get("cluster", [])
+CLUSTER_GAMES = R["cluster_games"]
+CUT_TARGET = P["cut_target_w"]
+ROS_W, ROS_L = P["ros_needed_w"], P["ros_needed_l"]
+
+# run differential vs record, in whichever direction it actually points
+_pyth_w = R["pythag_record"][JAYS][0]
+_delta = W - _pyth_w
+_deltas = {t: R["rivals"][t]["w"] - R["pythag_record"][t][0] for t in R["pythag_record"]}
+_superlative = (" — the largest overperformance in the league"
+                if _delta > 0 and _delta >= max(_deltas.values()) - 1e-9 else "")
+if abs(_delta) < 0.5:
+    pythag_note = ("Toronto's record is almost exactly what their run differential "
+                   "supports, so the gap is a matter of field construction rather than "
+                   "of how the Jays themselves are rated.")
+else:
+    pythag_note = (f"Toronto has won about {abs(_delta):.0f} "
+                   f"{'more' if _delta > 0 else 'fewer'} games than their run differential "
+                   f"supports{_superlative}, and this model leans harder on run "
+                   f"differential than theirs does.")
+
+# a hand-added makeup game is a thumb on the scale; say so on the page
+if _D.SYNTHETIC:
+    _sg = "; ".join(f"{a} at {h} on {datetime.date.fromisoformat(d).strftime('%b %-d')}"
+                    for d, a, h in _D.SYNTHETIC)
+    synthetic_note = (f" <b>One caveat:</b> {len(_D.SYNTHETIC)} makeup "
+                      f"game{'s' if len(_D.SYNTHETIC) > 1 else ''} not yet on MLB's "
+                      f"calendar {'were' if len(_D.SYNTHETIC) > 1 else 'was'} added by "
+                      f"hand so the schedule reconciles to 162 ({_sg}).")
+else:
+    synthetic_note = ""
+
 # ---- palette (validated: see validate_palette.js runs) ----
 C = dict(
     # Blue Jays light theme. Roles: BLUE = data marks, RED = attention (the live
@@ -214,15 +250,36 @@ for g in lev:
     seen.add(key)
     must_see.append(g)
 
-WHY = {
-    "Guardians": "Four-way tie-breaker fuel — Cleveland is directly in the way, and this is the only time the Jays see them again.",
-    "Tigers": "Detroit holds a wild card, owns the best run differential in the cluster (+90), and is the likeliest team to pull away. Toronto's only chance to slow them.",
-    "Rangers": "Texas sits right on the cut line and this is Toronto's only head-to-head with them left \u2014 the standings can flip outright here.",
-    "Rays": "Tampa is the AL's best team, but three road wins here is the single biggest step up the win curve.",
-    "Yankees": "The opener. Sweep it and the Jays leave the week inside the race; get swept and the math turns brutal.",
-    "Orioles": "A season-ending division swing where Baltimore has nothing to lose and the Jays have everything.",
-    "Mariners": "Seattle is the other team hovering just below the cut. A home series is a two-for-one.",
-}
+def why_for(g):
+    """Say why a game matters, using only facts true in THIS build.
+
+    This was a hand-written lookup table keyed by opponent. It read better, but every
+    entry asserted something that decays -- a run differential to the run ("+90"), a
+    standings position, "the only time the Jays see them again", "the opener" -- and the
+    page republishes nightly, so those claims went stale within days of being written.
+    """
+    opp = g["opp"]
+    rv = R["rivals"].get(opp)
+    later = sum(1 for x in R["leverage"] if x["opp"] == opp and x["date"] > g["date"])
+
+    if rv:
+        lead = (f"{opp} are {rv['w']}&ndash;{rv['l']} ({rv['rd']:+d} run differential), "
+                f"{rv['playoff']*100:.0f}% to reach the playoffs.")
+    else:                                    # an interleague opponent has no AL odds
+        lead = f"{opp} are outside the AL field, so only Toronto's own win column moves."
+
+    if later == 0:
+        when = " This is the last time the Jays see them"
+    else:
+        when = f" {later} more meeting{'s' if later > 1 else ''} left"
+
+    if opp in CLUSTER:
+        stake = ", and every win here passes them directly in the wild-card race."
+    elif rv and rv["playoff"] > 0.5:
+        stake = ", and they are on track to take one of the spots Toronto wants."
+    else:
+        stake = ", so this is about Toronto's win total more than the head-to-head."
+    return lead + when + stake
 mustsee_rows = ""
 for i, g in enumerate(must_see):
     d = datetime.date.fromisoformat(g["date"])
@@ -233,7 +290,7 @@ for i, g in enumerate(must_see):
       <div class="msbody">
         <div class="msdate">{d.strftime('%a %b %-d')}</div>
         <div class="msmatch">{loc} {g['opp']}</div>
-        <div class="mswhy">{WHY.get(g['opp'],'A direct swing game against a team in the wild-card cluster.')}</div>
+        <div class="mswhy">{why_for(g)}</div>
       </div>
       <div class="msswing"><b>±{g['leverage']*100:.1f}</b><span>pts of<br>playoff odds</span></div>
     </div>"""
@@ -273,6 +330,18 @@ series_won = P["series_won_needed"]
 # games back of the third wild card (the first team below the cut line is index cut_after-1)
 wc3 = wc_rows[cut_after - 1]
 gb_wc3 = wc3["gb"] if wc3["team"] != JAYS else 0.0
+
+# how many series can still be lost — read off the simulated qualifying seasons rather
+# than asserted ("Must not lose more than 4 series" was a literal)
+_dist = {int(k): v for k, v in P["series_won_dist_qualify"].items()}
+_cum, series_floor = 0.0, P["n_series"]
+for _k in sorted(_dist):
+    _cum += _dist[_k]
+    if _cum >= 0.10:
+        series_floor = _k
+        break
+series_pill = (f"Qualifies winning fewer than {series_floor} of {P['n_series']} series "
+               f"less than 10% of the time")
 
 HTML = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
@@ -625,11 +694,11 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
   <div class="card">
     <h2>What it takes</h2>
     <div class="statv">{P['ros_needed_w']}&ndash;{P['ros_needed_l']}</div>
-    <div class="statl">To reach <b>{CUT:.0f} wins</b>, the median cut line &mdash; a
+    <div class="statl">To reach <b>{CUT_TARGET} wins</b>, the median cut line &mdash; a
       <b>.{int(P['ros_needed_w']/GL*1000)}</b> pace over the last {GL} games. The Jays have
       played .{int(W/(W+L)*1000)} ball all year, and win <b>{series_won:.1f}</b> of their
       {P['n_series']} remaining series in the runs where they qualify.</div>
-    <div class="pill">Must not lose more than 4 series</div>
+    <div class="pill">{series_pill}</div>
   </div>
 </div>
 
@@ -736,17 +805,12 @@ winners and three wild cards. All conditional numbers — series targets, per-ga
 rival dependency — are read off the same set of simulated seasons, so they are mutually
 consistent. <b>The scenario picker</b> re-runs this same model live in your browser (14,000 seasons a
 click) rather than reading a number off the curve above. That matters: locking a Jays win
-also locks the opponent's loss, and 12 of the 39 remaining games are against teams in the
-wild-card cluster — so going 24&ndash;15 is worth a little more than "83 wins" on its own
-implies. <b>Known limits:</b> ties are broken at random rather than by head-to-head; the
-model knows run differential, not injuries, rotations or September call-ups. The
-Rangers&ndash;Angels postponement that previously left both clubs a game short was played
-on Aug 13 (Angels 7, Rangers 0), so the schedule now reconciles to 162 for all 15 AL clubs
-straight from the feed. Data: MLB Stats API. Comparison odds: Baseball-Reference.
-{bref_note_open} Toronto has won
-about {abs(int(W - R['pythag_record'][JAYS][0]))} more games than their run differential
-supports — the largest overperformance in the wild-card cluster — and this model leans
-harder on run differential than theirs does.
+also locks the opponent's loss, and {CLUSTER_GAMES} of the {GL} remaining games are against
+teams in the wild-card cluster — so going {ROS_W}&ndash;{ROS_L} is worth a little more than
+"{CUT_TARGET} wins" on its own implies. <b>Known limits:</b> ties are broken at random rather
+than by head-to-head; the model knows run differential, not injuries, rotations or September
+call-ups.{synthetic_note} Data: MLB Stats API. Comparison odds: Baseball-Reference.
+{bref_note_open} {pythag_note}
 </div>
 
 <div class="note" style="margin-top:10px;color:{C['mute']}">
