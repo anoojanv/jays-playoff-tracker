@@ -13,7 +13,7 @@ all 15 AL clubs reconcile to exactly 162 by construction.
 
   python tests/make_fixture.py        # rewrite tests/fixture_data.json
 """
-import json, os, sys, datetime, importlib.util
+import json, os, re, sys, datetime, importlib.util
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -158,9 +158,14 @@ def main():
     if bad:
         sys.exit(f"fixture does not reconcile to 162: {bad}")
 
+    # indent=1 puts every scalar on its own line, which turns a 15-club table and a
+    # 312-game schedule into ~1,800 lines and makes any real change unreviewable.
+    # Collapse the leaf arrays — a record, a game, a division — onto one line each.
+    txt = json.dumps(data, indent=1)
+    txt = re.sub(r"\[\s+([^\[\]{}]+?)\s+\]",
+                 lambda m: "[" + " ".join(m.group(1).split()) + "]", txt)
     with open(OUT, "w") as f:
-        json.dump(data, f, indent=1)
-        f.write("\n")
+        f.write(txt + "\n")
     print(f"wrote {OUT}")
     print(f"  {len(games)} remaining games, {len(al)} AL / {len(nl)} NL clubs")
     print(f"  every AL club at 162 · Blue Jays "

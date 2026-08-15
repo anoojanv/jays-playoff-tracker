@@ -3,1773 +3,357 @@
  "as_of": "2026-08-14",
  "generated": "2026-08-15T02:07:00+00:00",
  "AL": {
-  "Rays": [
-   76,
-   47,
-   608,
-   474
-  ],
-  "Yankees": [
-   72,
-   51,
-   595,
-   488
-  ],
-  "Red Sox": [
-   68,
-   55,
-   571,
-   512
-  ],
-  "Blue Jays": [
-   67,
-   56,
-   551,
-   532
-  ],
-  "Orioles": [
-   63,
-   60,
-   554,
-   528
-  ],
-  "White Sox": [
-   62,
-   61,
-   540,
-   542
-  ],
-  "Tigers": [
-   61,
-   62,
-   541,
-   541
-  ],
-  "Twins": [
-   60,
-   63,
-   541,
-   541
-  ],
-  "Guardians": [
-   59,
-   64,
-   525,
-   558
-  ],
-  "Royals": [
-   58,
-   65,
-   526,
-   557
-  ],
-  "Astros": [
-   57,
-   66,
-   523,
-   559
-  ],
-  "Rangers": [
-   55,
-   68,
-   508,
-   574
-  ],
-  "Mariners": [
-   53,
-   70,
-   506,
-   577
-  ],
-  "Athletics": [
-   51,
-   72,
-   490,
-   592
-  ],
-  "Angels": [
-   48,
-   75,
-   479,
-   603
-  ]
+  "Rays": [76, 47, 608, 474],
+  "Yankees": [72, 51, 595, 488],
+  "Red Sox": [68, 55, 571, 512],
+  "Blue Jays": [67, 56, 551, 532],
+  "Orioles": [63, 60, 554, 528],
+  "White Sox": [62, 61, 540, 542],
+  "Tigers": [61, 62, 541, 541],
+  "Twins": [60, 63, 541, 541],
+  "Guardians": [59, 64, 525, 558],
+  "Royals": [58, 65, 526, 557],
+  "Astros": [57, 66, 523, 559],
+  "Rangers": [55, 68, 508, 574],
+  "Mariners": [53, 70, 506, 577],
+  "Athletics": [51, 72, 490, 592],
+  "Angels": [48, 75, 479, 603]
  },
  "NL": {
-  "Braves": [
-   73,
-   48,
-   595,
-   469
-  ],
-  "Phillies": [
-   71,
-   51,
-   581,
-   493
-  ],
-  "Marlins": [
-   70,
-   53,
-   585,
-   497
-  ],
-  "Nationals": [
-   69,
-   55,
-   575,
-   516
-  ],
-  "Mets": [
-   66,
-   55,
-   562,
-   503
-  ],
-  "Brewers": [
-   65,
-   57,
-   552,
-   521
-  ],
-  "Cubs": [
-   63,
-   60,
-   552,
-   531
-  ],
-  "Cardinals": [
-   62,
-   62,
-   542,
-   549
-  ],
-  "Reds": [
-   59,
-   62,
-   529,
-   536
-  ],
-  "Pirates": [
-   58,
-   64,
-   519,
-   554
-  ],
-  "Dodgers": [
-   57,
-   66,
-   523,
-   559
-  ],
-  "Padres": [
-   55,
-   69,
-   509,
-   582
-  ],
-  "D-backs": [
-   52,
-   69,
-   496,
-   569
-  ],
-  "Giants": [
-   51,
-   71,
-   486,
-   588
-  ],
-  "Rockies": [
-   50,
-   73,
-   490,
-   592
-  ]
+  "Braves": [73, 48, 595, 469],
+  "Phillies": [71, 51, 581, 493],
+  "Marlins": [70, 53, 585, 497],
+  "Nationals": [69, 55, 575, 516],
+  "Mets": [66, 55, 562, 503],
+  "Brewers": [65, 57, 552, 521],
+  "Cubs": [63, 60, 552, 531],
+  "Cardinals": [62, 62, 542, 549],
+  "Reds": [59, 62, 529, 536],
+  "Pirates": [58, 64, 519, 554],
+  "Dodgers": [57, 66, 523, 559],
+  "Padres": [55, 69, 509, 582],
+  "D-backs": [52, 69, 496, 569],
+  "Giants": [51, 71, 486, 588],
+  "Rockies": [50, 73, 490, 592]
  },
  "DIVISIONS": {
-  "AL East": [
-   "Rays",
-   "Yankees",
-   "Red Sox",
-   "Blue Jays",
-   "Orioles"
-  ],
-  "AL Central": [
-   "White Sox",
-   "Tigers",
-   "Twins",
-   "Guardians",
-   "Royals"
-  ],
-  "AL West": [
-   "Astros",
-   "Rangers",
-   "Mariners",
-   "Athletics",
-   "Angels"
-  ]
+  "AL East": ["Rays", "Yankees", "Red Sox", "Blue Jays", "Orioles"],
+  "AL Central": ["White Sox", "Tigers", "Twins", "Guardians", "Royals"],
+  "AL West": ["Astros", "Rangers", "Mariners", "Athletics", "Angels"]
  },
  "GAMES": [
-  [
-   "2026-08-15",
-   "Athletics",
-   "Red Sox"
-  ],
-  [
-   "2026-08-15",
-   "Blue Jays",
-   "Mariners"
-  ],
-  [
-   "2026-08-15",
-   "Braves",
-   "Rays"
-  ],
-  [
-   "2026-08-15",
-   "Rangers",
-   "Orioles"
-  ],
-  [
-   "2026-08-15",
-   "Royals",
-   "Tigers"
-  ],
-  [
-   "2026-08-15",
-   "Twins",
-   "Guardians"
-  ],
-  [
-   "2026-08-15",
-   "White Sox",
-   "Astros"
-  ],
-  [
-   "2026-08-15",
-   "Yankees",
-   "Angels"
-  ],
-  [
-   "2026-08-16",
-   "Athletics",
-   "Red Sox"
-  ],
-  [
-   "2026-08-16",
-   "Blue Jays",
-   "Mariners"
-  ],
-  [
-   "2026-08-16",
-   "Braves",
-   "Rays"
-  ],
-  [
-   "2026-08-16",
-   "Rangers",
-   "Orioles"
-  ],
-  [
-   "2026-08-16",
-   "Royals",
-   "Tigers"
-  ],
-  [
-   "2026-08-16",
-   "Twins",
-   "Guardians"
-  ],
-  [
-   "2026-08-16",
-   "White Sox",
-   "Astros"
-  ],
-  [
-   "2026-08-16",
-   "Yankees",
-   "Angels"
-  ],
-  [
-   "2026-08-17",
-   "Athletics",
-   "Red Sox"
-  ],
-  [
-   "2026-08-17",
-   "Blue Jays",
-   "Mariners"
-  ],
-  [
-   "2026-08-17",
-   "Braves",
-   "Rays"
-  ],
-  [
-   "2026-08-17",
-   "Rangers",
-   "Orioles"
-  ],
-  [
-   "2026-08-17",
-   "Royals",
-   "Tigers"
-  ],
-  [
-   "2026-08-17",
-   "Twins",
-   "Guardians"
-  ],
-  [
-   "2026-08-17",
-   "White Sox",
-   "Astros"
-  ],
-  [
-   "2026-08-17",
-   "Yankees",
-   "Angels"
-  ],
-  [
-   "2026-08-19",
-   "Athletics",
-   "Mets"
-  ],
-  [
-   "2026-08-19",
-   "Blue Jays",
-   "Astros"
-  ],
-  [
-   "2026-08-19",
-   "Rangers",
-   "Red Sox"
-  ],
-  [
-   "2026-08-19",
-   "Rays",
-   "Angels"
-  ],
-  [
-   "2026-08-19",
-   "Royals",
-   "Orioles"
-  ],
-  [
-   "2026-08-19",
-   "Twins",
-   "Tigers"
-  ],
-  [
-   "2026-08-19",
-   "White Sox",
-   "Guardians"
-  ],
-  [
-   "2026-08-19",
-   "Yankees",
-   "Mariners"
-  ],
-  [
-   "2026-08-20",
-   "Athletics",
-   "Mets"
-  ],
-  [
-   "2026-08-20",
-   "Blue Jays",
-   "Astros"
-  ],
-  [
-   "2026-08-20",
-   "Rangers",
-   "Red Sox"
-  ],
-  [
-   "2026-08-20",
-   "Rays",
-   "Angels"
-  ],
-  [
-   "2026-08-20",
-   "Royals",
-   "Orioles"
-  ],
-  [
-   "2026-08-20",
-   "Twins",
-   "Tigers"
-  ],
-  [
-   "2026-08-20",
-   "White Sox",
-   "Guardians"
-  ],
-  [
-   "2026-08-20",
-   "Yankees",
-   "Mariners"
-  ],
-  [
-   "2026-08-21",
-   "Athletics",
-   "Mets"
-  ],
-  [
-   "2026-08-21",
-   "Blue Jays",
-   "Astros"
-  ],
-  [
-   "2026-08-21",
-   "Rangers",
-   "Red Sox"
-  ],
-  [
-   "2026-08-21",
-   "Rays",
-   "Angels"
-  ],
-  [
-   "2026-08-21",
-   "Royals",
-   "Orioles"
-  ],
-  [
-   "2026-08-21",
-   "Twins",
-   "Tigers"
-  ],
-  [
-   "2026-08-21",
-   "White Sox",
-   "Guardians"
-  ],
-  [
-   "2026-08-21",
-   "Yankees",
-   "Mariners"
-  ],
-  [
-   "2026-08-23",
-   "Angels",
-   "Mariners"
-  ],
-  [
-   "2026-08-23",
-   "Athletics",
-   "Rays"
-  ],
-  [
-   "2026-08-23",
-   "Blue Jays",
-   "Guardians"
-  ],
-  [
-   "2026-08-23",
-   "Reds",
-   "Rangers"
-  ],
-  [
-   "2026-08-23",
-   "Royals",
-   "Red Sox"
-  ],
-  [
-   "2026-08-23",
-   "Twins",
-   "Orioles"
-  ],
-  [
-   "2026-08-23",
-   "White Sox",
-   "Tigers"
-  ],
-  [
-   "2026-08-23",
-   "Yankees",
-   "Astros"
-  ],
-  [
-   "2026-08-24",
-   "Angels",
-   "Mariners"
-  ],
-  [
-   "2026-08-24",
-   "Athletics",
-   "Rays"
-  ],
-  [
-   "2026-08-24",
-   "Blue Jays",
-   "Guardians"
-  ],
-  [
-   "2026-08-24",
-   "Reds",
-   "Rangers"
-  ],
-  [
-   "2026-08-24",
-   "Royals",
-   "Red Sox"
-  ],
-  [
-   "2026-08-24",
-   "Twins",
-   "Orioles"
-  ],
-  [
-   "2026-08-24",
-   "White Sox",
-   "Tigers"
-  ],
-  [
-   "2026-08-24",
-   "Yankees",
-   "Astros"
-  ],
-  [
-   "2026-08-25",
-   "Angels",
-   "Mariners"
-  ],
-  [
-   "2026-08-25",
-   "Athletics",
-   "Rays"
-  ],
-  [
-   "2026-08-25",
-   "Blue Jays",
-   "Guardians"
-  ],
-  [
-   "2026-08-25",
-   "Reds",
-   "Rangers"
-  ],
-  [
-   "2026-08-25",
-   "Royals",
-   "Red Sox"
-  ],
-  [
-   "2026-08-25",
-   "Twins",
-   "Orioles"
-  ],
-  [
-   "2026-08-25",
-   "White Sox",
-   "Tigers"
-  ],
-  [
-   "2026-08-25",
-   "Yankees",
-   "Astros"
-  ],
-  [
-   "2026-08-27",
-   "Angels",
-   "Astros"
-  ],
-  [
-   "2026-08-27",
-   "Blue Jays",
-   "Tigers"
-  ],
-  [
-   "2026-08-27",
-   "Rangers",
-   "Athletics"
-  ],
-  [
-   "2026-08-27",
-   "Rays",
-   "Mariners"
-  ],
-  [
-   "2026-08-27",
-   "Royals",
-   "D-backs"
-  ],
-  [
-   "2026-08-27",
-   "Twins",
-   "Red Sox"
-  ],
-  [
-   "2026-08-27",
-   "White Sox",
-   "Orioles"
-  ],
-  [
-   "2026-08-27",
-   "Yankees",
-   "Guardians"
-  ],
-  [
-   "2026-08-28",
-   "Angels",
-   "Astros"
-  ],
-  [
-   "2026-08-28",
-   "Blue Jays",
-   "Tigers"
-  ],
-  [
-   "2026-08-28",
-   "Rangers",
-   "Athletics"
-  ],
-  [
-   "2026-08-28",
-   "Rays",
-   "Mariners"
-  ],
-  [
-   "2026-08-28",
-   "Royals",
-   "D-backs"
-  ],
-  [
-   "2026-08-28",
-   "Twins",
-   "Red Sox"
-  ],
-  [
-   "2026-08-28",
-   "White Sox",
-   "Orioles"
-  ],
-  [
-   "2026-08-28",
-   "Yankees",
-   "Guardians"
-  ],
-  [
-   "2026-08-29",
-   "Angels",
-   "Astros"
-  ],
-  [
-   "2026-08-29",
-   "Blue Jays",
-   "Tigers"
-  ],
-  [
-   "2026-08-29",
-   "Rangers",
-   "Athletics"
-  ],
-  [
-   "2026-08-29",
-   "Rays",
-   "Mariners"
-  ],
-  [
-   "2026-08-29",
-   "Royals",
-   "D-backs"
-  ],
-  [
-   "2026-08-29",
-   "Twins",
-   "Red Sox"
-  ],
-  [
-   "2026-08-29",
-   "White Sox",
-   "Orioles"
-  ],
-  [
-   "2026-08-29",
-   "Yankees",
-   "Guardians"
-  ],
-  [
-   "2026-08-31",
-   "Angels",
-   "Guardians"
-  ],
-  [
-   "2026-08-31",
-   "Blue Jays",
-   "Orioles"
-  ],
-  [
-   "2026-08-31",
-   "Mariners",
-   "Astros"
-  ],
-  [
-   "2026-08-31",
-   "Phillies",
-   "Twins"
-  ],
-  [
-   "2026-08-31",
-   "Rangers",
-   "Rays"
-  ],
-  [
-   "2026-08-31",
-   "Royals",
-   "Athletics"
-  ],
-  [
-   "2026-08-31",
-   "White Sox",
-   "Red Sox"
-  ],
-  [
-   "2026-08-31",
-   "Yankees",
-   "Tigers"
-  ],
-  [
-   "2026-09-01",
-   "Angels",
-   "Guardians"
-  ],
-  [
-   "2026-09-01",
-   "Blue Jays",
-   "Orioles"
-  ],
-  [
-   "2026-09-01",
-   "Mariners",
-   "Astros"
-  ],
-  [
-   "2026-09-01",
-   "Phillies",
-   "Twins"
-  ],
-  [
-   "2026-09-01",
-   "Rangers",
-   "Rays"
-  ],
-  [
-   "2026-09-01",
-   "Royals",
-   "Athletics"
-  ],
-  [
-   "2026-09-01",
-   "White Sox",
-   "Red Sox"
-  ],
-  [
-   "2026-09-01",
-   "Yankees",
-   "Tigers"
-  ],
-  [
-   "2026-09-02",
-   "Angels",
-   "Guardians"
-  ],
-  [
-   "2026-09-02",
-   "Blue Jays",
-   "Orioles"
-  ],
-  [
-   "2026-09-02",
-   "Mariners",
-   "Astros"
-  ],
-  [
-   "2026-09-02",
-   "Phillies",
-   "Twins"
-  ],
-  [
-   "2026-09-02",
-   "Rangers",
-   "Rays"
-  ],
-  [
-   "2026-09-02",
-   "Royals",
-   "Athletics"
-  ],
-  [
-   "2026-09-02",
-   "White Sox",
-   "Red Sox"
-  ],
-  [
-   "2026-09-02",
-   "Yankees",
-   "Tigers"
-  ],
-  [
-   "2026-09-04",
-   "Angels",
-   "Tigers"
-  ],
-  [
-   "2026-09-04",
-   "Blue Jays",
-   "Red Sox"
-  ],
-  [
-   "2026-09-04",
-   "Mariners",
-   "Guardians"
-  ],
-  [
-   "2026-09-04",
-   "Rays",
-   "Astros"
-  ],
-  [
-   "2026-09-04",
-   "Royals",
-   "Rangers"
-  ],
-  [
-   "2026-09-04",
-   "Twins",
-   "Athletics"
-  ],
-  [
-   "2026-09-04",
-   "White Sox",
-   "Brewers"
-  ],
-  [
-   "2026-09-04",
-   "Yankees",
-   "Orioles"
-  ],
-  [
-   "2026-09-05",
-   "Angels",
-   "Tigers"
-  ],
-  [
-   "2026-09-05",
-   "Blue Jays",
-   "Red Sox"
-  ],
-  [
-   "2026-09-05",
-   "Mariners",
-   "Guardians"
-  ],
-  [
-   "2026-09-05",
-   "Rays",
-   "Astros"
-  ],
-  [
-   "2026-09-05",
-   "Royals",
-   "Rangers"
-  ],
-  [
-   "2026-09-05",
-   "Twins",
-   "Athletics"
-  ],
-  [
-   "2026-09-05",
-   "White Sox",
-   "Brewers"
-  ],
-  [
-   "2026-09-05",
-   "Yankees",
-   "Orioles"
-  ],
-  [
-   "2026-09-06",
-   "Angels",
-   "Tigers"
-  ],
-  [
-   "2026-09-06",
-   "Blue Jays",
-   "Red Sox"
-  ],
-  [
-   "2026-09-06",
-   "Mariners",
-   "Guardians"
-  ],
-  [
-   "2026-09-06",
-   "Rays",
-   "Astros"
-  ],
-  [
-   "2026-09-06",
-   "Royals",
-   "Rangers"
-  ],
-  [
-   "2026-09-06",
-   "Twins",
-   "Athletics"
-  ],
-  [
-   "2026-09-06",
-   "White Sox",
-   "Brewers"
-  ],
-  [
-   "2026-09-06",
-   "Yankees",
-   "Orioles"
-  ],
-  [
-   "2026-09-08",
-   "Angels",
-   "Orioles"
-  ],
-  [
-   "2026-09-08",
-   "Astros",
-   "Guardians"
-  ],
-  [
-   "2026-09-08",
-   "Mariners",
-   "Tigers"
-  ],
-  [
-   "2026-09-08",
-   "Pirates",
-   "Blue Jays"
-  ],
-  [
-   "2026-09-08",
-   "Royals",
-   "Rays"
-  ],
-  [
-   "2026-09-08",
-   "Twins",
-   "Rangers"
-  ],
-  [
-   "2026-09-08",
-   "White Sox",
-   "Athletics"
-  ],
-  [
-   "2026-09-08",
-   "Yankees",
-   "Red Sox"
-  ],
-  [
-   "2026-09-09",
-   "Angels",
-   "Orioles"
-  ],
-  [
-   "2026-09-09",
-   "Astros",
-   "Guardians"
-  ],
-  [
-   "2026-09-09",
-   "Mariners",
-   "Tigers"
-  ],
-  [
-   "2026-09-09",
-   "Pirates",
-   "Blue Jays"
-  ],
-  [
-   "2026-09-09",
-   "Royals",
-   "Rays"
-  ],
-  [
-   "2026-09-09",
-   "Twins",
-   "Rangers"
-  ],
-  [
-   "2026-09-09",
-   "White Sox",
-   "Athletics"
-  ],
-  [
-   "2026-09-09",
-   "Yankees",
-   "Red Sox"
-  ],
-  [
-   "2026-09-10",
-   "Angels",
-   "Orioles"
-  ],
-  [
-   "2026-09-10",
-   "Astros",
-   "Guardians"
-  ],
-  [
-   "2026-09-10",
-   "Mariners",
-   "Tigers"
-  ],
-  [
-   "2026-09-10",
-   "Pirates",
-   "Blue Jays"
-  ],
-  [
-   "2026-09-10",
-   "Royals",
-   "Rays"
-  ],
-  [
-   "2026-09-10",
-   "Twins",
-   "Rangers"
-  ],
-  [
-   "2026-09-10",
-   "White Sox",
-   "Athletics"
-  ],
-  [
-   "2026-09-10",
-   "Yankees",
-   "Red Sox"
-  ],
-  [
-   "2026-09-12",
-   "Angels",
-   "Red Sox"
-  ],
-  [
-   "2026-09-12",
-   "Astros",
-   "Tigers"
-  ],
-  [
-   "2026-09-12",
-   "Blue Jays",
-   "Athletics"
-  ],
-  [
-   "2026-09-12",
-   "Mariners",
-   "Orioles"
-  ],
-  [
-   "2026-09-12",
-   "Rays",
-   "Guardians"
-  ],
-  [
-   "2026-09-12",
-   "Twins",
-   "Royals"
-  ],
-  [
-   "2026-09-12",
-   "White Sox",
-   "Rangers"
-  ],
-  [
-   "2026-09-12",
-   "Yankees",
-   "Giants"
-  ],
-  [
-   "2026-09-13",
-   "Angels",
-   "Red Sox"
-  ],
-  [
-   "2026-09-13",
-   "Astros",
-   "Tigers"
-  ],
-  [
-   "2026-09-13",
-   "Blue Jays",
-   "Athletics"
-  ],
-  [
-   "2026-09-13",
-   "Mariners",
-   "Orioles"
-  ],
-  [
-   "2026-09-13",
-   "Rays",
-   "Guardians"
-  ],
-  [
-   "2026-09-13",
-   "Twins",
-   "Royals"
-  ],
-  [
-   "2026-09-13",
-   "White Sox",
-   "Rangers"
-  ],
-  [
-   "2026-09-13",
-   "Yankees",
-   "Giants"
-  ],
-  [
-   "2026-09-14",
-   "Angels",
-   "Red Sox"
-  ],
-  [
-   "2026-09-14",
-   "Astros",
-   "Tigers"
-  ],
-  [
-   "2026-09-14",
-   "Blue Jays",
-   "Athletics"
-  ],
-  [
-   "2026-09-14",
-   "Mariners",
-   "Orioles"
-  ],
-  [
-   "2026-09-14",
-   "Rays",
-   "Guardians"
-  ],
-  [
-   "2026-09-14",
-   "Twins",
-   "Royals"
-  ],
-  [
-   "2026-09-14",
-   "White Sox",
-   "Rangers"
-  ],
-  [
-   "2026-09-14",
-   "Yankees",
-   "Giants"
-  ],
-  [
-   "2026-09-16",
-   "Astros",
-   "Orioles"
-  ],
-  [
-   "2026-09-16",
-   "Blue Jays",
-   "Rangers"
-  ],
-  [
-   "2026-09-16",
-   "Guardians",
-   "Tigers"
-  ],
-  [
-   "2026-09-16",
-   "Mariners",
-   "Red Sox"
-  ],
-  [
-   "2026-09-16",
-   "Phillies",
-   "Angels"
-  ],
-  [
-   "2026-09-16",
-   "Twins",
-   "Rays"
-  ],
-  [
-   "2026-09-16",
-   "White Sox",
-   "Royals"
-  ],
-  [
-   "2026-09-16",
-   "Yankees",
-   "Athletics"
-  ],
-  [
-   "2026-09-17",
-   "Astros",
-   "Orioles"
-  ],
-  [
-   "2026-09-17",
-   "Blue Jays",
-   "Rangers"
-  ],
-  [
-   "2026-09-17",
-   "Guardians",
-   "Tigers"
-  ],
-  [
-   "2026-09-17",
-   "Mariners",
-   "Red Sox"
-  ],
-  [
-   "2026-09-17",
-   "Phillies",
-   "Angels"
-  ],
-  [
-   "2026-09-17",
-   "Twins",
-   "Rays"
-  ],
-  [
-   "2026-09-17",
-   "White Sox",
-   "Royals"
-  ],
-  [
-   "2026-09-17",
-   "Yankees",
-   "Athletics"
-  ],
-  [
-   "2026-09-18",
-   "Astros",
-   "Orioles"
-  ],
-  [
-   "2026-09-18",
-   "Blue Jays",
-   "Rangers"
-  ],
-  [
-   "2026-09-18",
-   "Guardians",
-   "Tigers"
-  ],
-  [
-   "2026-09-18",
-   "Mariners",
-   "Red Sox"
-  ],
-  [
-   "2026-09-18",
-   "Phillies",
-   "Angels"
-  ],
-  [
-   "2026-09-18",
-   "Twins",
-   "Rays"
-  ],
-  [
-   "2026-09-18",
-   "White Sox",
-   "Royals"
-  ],
-  [
-   "2026-09-18",
-   "Yankees",
-   "Athletics"
-  ],
-  [
-   "2026-09-20",
-   "Angels",
-   "Athletics"
-  ],
-  [
-   "2026-09-20",
-   "Astros",
-   "Red Sox"
-  ],
-  [
-   "2026-09-20",
-   "Blue Jays",
-   "Royals"
-  ],
-  [
-   "2026-09-20",
-   "Guardians",
-   "Orioles"
-  ],
-  [
-   "2026-09-20",
-   "Mariners",
-   "Nationals"
-  ],
-  [
-   "2026-09-20",
-   "Rays",
-   "Tigers"
-  ],
-  [
-   "2026-09-20",
-   "White Sox",
-   "Twins"
-  ],
-  [
-   "2026-09-20",
-   "Yankees",
-   "Rangers"
-  ],
-  [
-   "2026-09-21",
-   "Angels",
-   "Athletics"
-  ],
-  [
-   "2026-09-21",
-   "Astros",
-   "Red Sox"
-  ],
-  [
-   "2026-09-21",
-   "Blue Jays",
-   "Royals"
-  ],
-  [
-   "2026-09-21",
-   "Guardians",
-   "Orioles"
-  ],
-  [
-   "2026-09-21",
-   "Mariners",
-   "Nationals"
-  ],
-  [
-   "2026-09-21",
-   "Rays",
-   "Tigers"
-  ],
-  [
-   "2026-09-21",
-   "White Sox",
-   "Twins"
-  ],
-  [
-   "2026-09-21",
-   "Yankees",
-   "Rangers"
-  ],
-  [
-   "2026-09-22",
-   "Angels",
-   "Athletics"
-  ],
-  [
-   "2026-09-22",
-   "Astros",
-   "Red Sox"
-  ],
-  [
-   "2026-09-22",
-   "Blue Jays",
-   "Royals"
-  ],
-  [
-   "2026-09-22",
-   "Guardians",
-   "Orioles"
-  ],
-  [
-   "2026-09-22",
-   "Mariners",
-   "Nationals"
-  ],
-  [
-   "2026-09-22",
-   "Rays",
-   "Tigers"
-  ],
-  [
-   "2026-09-22",
-   "White Sox",
-   "Twins"
-  ],
-  [
-   "2026-09-22",
-   "Yankees",
-   "Rangers"
-  ],
-  [
-   "2026-09-24",
-   "Angels",
-   "Rangers"
-  ],
-  [
-   "2026-09-24",
-   "Blue Jays",
-   "Twins"
-  ],
-  [
-   "2026-09-24",
-   "Brewers",
-   "Astros"
-  ],
-  [
-   "2026-09-24",
-   "Guardians",
-   "Red Sox"
-  ],
-  [
-   "2026-09-24",
-   "Mariners",
-   "Athletics"
-  ],
-  [
-   "2026-09-24",
-   "Tigers",
-   "Orioles"
-  ],
-  [
-   "2026-09-24",
-   "White Sox",
-   "Rays"
-  ],
-  [
-   "2026-09-24",
-   "Yankees",
-   "Royals"
-  ],
-  [
-   "2026-09-25",
-   "Angels",
-   "Rangers"
-  ],
-  [
-   "2026-09-25",
-   "Blue Jays",
-   "Twins"
-  ],
-  [
-   "2026-09-25",
-   "Brewers",
-   "Astros"
-  ],
-  [
-   "2026-09-25",
-   "Guardians",
-   "Red Sox"
-  ],
-  [
-   "2026-09-25",
-   "Mariners",
-   "Athletics"
-  ],
-  [
-   "2026-09-25",
-   "Tigers",
-   "Orioles"
-  ],
-  [
-   "2026-09-25",
-   "White Sox",
-   "Rays"
-  ],
-  [
-   "2026-09-25",
-   "Yankees",
-   "Royals"
-  ],
-  [
-   "2026-09-26",
-   "Angels",
-   "Rangers"
-  ],
-  [
-   "2026-09-26",
-   "Blue Jays",
-   "Twins"
-  ],
-  [
-   "2026-09-26",
-   "Brewers",
-   "Astros"
-  ],
-  [
-   "2026-09-26",
-   "Guardians",
-   "Red Sox"
-  ],
-  [
-   "2026-09-26",
-   "Mariners",
-   "Athletics"
-  ],
-  [
-   "2026-09-26",
-   "Tigers",
-   "Orioles"
-  ],
-  [
-   "2026-09-26",
-   "White Sox",
-   "Rays"
-  ],
-  [
-   "2026-09-26",
-   "Yankees",
-   "Royals"
-  ],
-  [
-   "2026-09-28",
-   "Angels",
-   "Royals"
-  ],
-  [
-   "2026-09-28",
-   "Astros",
-   "Athletics"
-  ],
-  [
-   "2026-09-28",
-   "Blue Jays",
-   "White Sox"
-  ],
-  [
-   "2026-09-28",
-   "Guardians",
-   "Cardinals"
-  ],
-  [
-   "2026-09-28",
-   "Mariners",
-   "Rangers"
-  ],
-  [
-   "2026-09-28",
-   "Rays",
-   "Orioles"
-  ],
-  [
-   "2026-09-28",
-   "Tigers",
-   "Red Sox"
-  ],
-  [
-   "2026-09-28",
-   "Yankees",
-   "Twins"
-  ],
-  [
-   "2026-09-29",
-   "Angels",
-   "Royals"
-  ],
-  [
-   "2026-09-29",
-   "Astros",
-   "Athletics"
-  ],
-  [
-   "2026-09-29",
-   "Blue Jays",
-   "White Sox"
-  ],
-  [
-   "2026-09-29",
-   "Guardians",
-   "Cardinals"
-  ],
-  [
-   "2026-09-29",
-   "Mariners",
-   "Rangers"
-  ],
-  [
-   "2026-09-29",
-   "Rays",
-   "Orioles"
-  ],
-  [
-   "2026-09-29",
-   "Tigers",
-   "Red Sox"
-  ],
-  [
-   "2026-09-29",
-   "Yankees",
-   "Twins"
-  ],
-  [
-   "2026-09-30",
-   "Angels",
-   "Royals"
-  ],
-  [
-   "2026-09-30",
-   "Astros",
-   "Athletics"
-  ],
-  [
-   "2026-09-30",
-   "Blue Jays",
-   "White Sox"
-  ],
-  [
-   "2026-09-30",
-   "Guardians",
-   "Cardinals"
-  ],
-  [
-   "2026-09-30",
-   "Mariners",
-   "Rangers"
-  ],
-  [
-   "2026-09-30",
-   "Rays",
-   "Orioles"
-  ],
-  [
-   "2026-09-30",
-   "Tigers",
-   "Red Sox"
-  ],
-  [
-   "2026-09-30",
-   "Yankees",
-   "Twins"
-  ],
-  [
-   "2026-10-02",
-   "Angels",
-   "Twins"
-  ],
-  [
-   "2026-10-02",
-   "Astros",
-   "Rangers"
-  ],
-  [
-   "2026-10-02",
-   "Blue Jays",
-   "Rays"
-  ],
-  [
-   "2026-10-02",
-   "Guardians",
-   "Athletics"
-  ],
-  [
-   "2026-10-02",
-   "Mariners",
-   "Royals"
-  ],
-  [
-   "2026-10-02",
-   "Orioles",
-   "Red Sox"
-  ],
-  [
-   "2026-10-02",
-   "Pirates",
-   "Tigers"
-  ],
-  [
-   "2026-10-02",
-   "Yankees",
-   "White Sox"
-  ],
-  [
-   "2026-10-03",
-   "Angels",
-   "Twins"
-  ],
-  [
-   "2026-10-03",
-   "Astros",
-   "Rangers"
-  ],
-  [
-   "2026-10-03",
-   "Blue Jays",
-   "Rays"
-  ],
-  [
-   "2026-10-03",
-   "Guardians",
-   "Athletics"
-  ],
-  [
-   "2026-10-03",
-   "Mariners",
-   "Royals"
-  ],
-  [
-   "2026-10-03",
-   "Orioles",
-   "Red Sox"
-  ],
-  [
-   "2026-10-03",
-   "Pirates",
-   "Tigers"
-  ],
-  [
-   "2026-10-03",
-   "Yankees",
-   "White Sox"
-  ],
-  [
-   "2026-10-04",
-   "Angels",
-   "Twins"
-  ],
-  [
-   "2026-10-04",
-   "Astros",
-   "Rangers"
-  ],
-  [
-   "2026-10-04",
-   "Blue Jays",
-   "Rays"
-  ],
-  [
-   "2026-10-04",
-   "Guardians",
-   "Athletics"
-  ],
-  [
-   "2026-10-04",
-   "Mariners",
-   "Royals"
-  ],
-  [
-   "2026-10-04",
-   "Orioles",
-   "Red Sox"
-  ],
-  [
-   "2026-10-04",
-   "Pirates",
-   "Tigers"
-  ],
-  [
-   "2026-10-04",
-   "Yankees",
-   "White Sox"
-  ]
+  ["2026-08-15", "Athletics", "Red Sox"],
+  ["2026-08-15", "Blue Jays", "Mariners"],
+  ["2026-08-15", "Braves", "Rays"],
+  ["2026-08-15", "Rangers", "Orioles"],
+  ["2026-08-15", "Royals", "Tigers"],
+  ["2026-08-15", "Twins", "Guardians"],
+  ["2026-08-15", "White Sox", "Astros"],
+  ["2026-08-15", "Yankees", "Angels"],
+  ["2026-08-16", "Athletics", "Red Sox"],
+  ["2026-08-16", "Blue Jays", "Mariners"],
+  ["2026-08-16", "Braves", "Rays"],
+  ["2026-08-16", "Rangers", "Orioles"],
+  ["2026-08-16", "Royals", "Tigers"],
+  ["2026-08-16", "Twins", "Guardians"],
+  ["2026-08-16", "White Sox", "Astros"],
+  ["2026-08-16", "Yankees", "Angels"],
+  ["2026-08-17", "Athletics", "Red Sox"],
+  ["2026-08-17", "Blue Jays", "Mariners"],
+  ["2026-08-17", "Braves", "Rays"],
+  ["2026-08-17", "Rangers", "Orioles"],
+  ["2026-08-17", "Royals", "Tigers"],
+  ["2026-08-17", "Twins", "Guardians"],
+  ["2026-08-17", "White Sox", "Astros"],
+  ["2026-08-17", "Yankees", "Angels"],
+  ["2026-08-19", "Athletics", "Mets"],
+  ["2026-08-19", "Blue Jays", "Astros"],
+  ["2026-08-19", "Rangers", "Red Sox"],
+  ["2026-08-19", "Rays", "Angels"],
+  ["2026-08-19", "Royals", "Orioles"],
+  ["2026-08-19", "Twins", "Tigers"],
+  ["2026-08-19", "White Sox", "Guardians"],
+  ["2026-08-19", "Yankees", "Mariners"],
+  ["2026-08-20", "Athletics", "Mets"],
+  ["2026-08-20", "Blue Jays", "Astros"],
+  ["2026-08-20", "Rangers", "Red Sox"],
+  ["2026-08-20", "Rays", "Angels"],
+  ["2026-08-20", "Royals", "Orioles"],
+  ["2026-08-20", "Twins", "Tigers"],
+  ["2026-08-20", "White Sox", "Guardians"],
+  ["2026-08-20", "Yankees", "Mariners"],
+  ["2026-08-21", "Athletics", "Mets"],
+  ["2026-08-21", "Blue Jays", "Astros"],
+  ["2026-08-21", "Rangers", "Red Sox"],
+  ["2026-08-21", "Rays", "Angels"],
+  ["2026-08-21", "Royals", "Orioles"],
+  ["2026-08-21", "Twins", "Tigers"],
+  ["2026-08-21", "White Sox", "Guardians"],
+  ["2026-08-21", "Yankees", "Mariners"],
+  ["2026-08-23", "Angels", "Mariners"],
+  ["2026-08-23", "Athletics", "Rays"],
+  ["2026-08-23", "Blue Jays", "Guardians"],
+  ["2026-08-23", "Reds", "Rangers"],
+  ["2026-08-23", "Royals", "Red Sox"],
+  ["2026-08-23", "Twins", "Orioles"],
+  ["2026-08-23", "White Sox", "Tigers"],
+  ["2026-08-23", "Yankees", "Astros"],
+  ["2026-08-24", "Angels", "Mariners"],
+  ["2026-08-24", "Athletics", "Rays"],
+  ["2026-08-24", "Blue Jays", "Guardians"],
+  ["2026-08-24", "Reds", "Rangers"],
+  ["2026-08-24", "Royals", "Red Sox"],
+  ["2026-08-24", "Twins", "Orioles"],
+  ["2026-08-24", "White Sox", "Tigers"],
+  ["2026-08-24", "Yankees", "Astros"],
+  ["2026-08-25", "Angels", "Mariners"],
+  ["2026-08-25", "Athletics", "Rays"],
+  ["2026-08-25", "Blue Jays", "Guardians"],
+  ["2026-08-25", "Reds", "Rangers"],
+  ["2026-08-25", "Royals", "Red Sox"],
+  ["2026-08-25", "Twins", "Orioles"],
+  ["2026-08-25", "White Sox", "Tigers"],
+  ["2026-08-25", "Yankees", "Astros"],
+  ["2026-08-27", "Angels", "Astros"],
+  ["2026-08-27", "Blue Jays", "Tigers"],
+  ["2026-08-27", "Rangers", "Athletics"],
+  ["2026-08-27", "Rays", "Mariners"],
+  ["2026-08-27", "Royals", "D-backs"],
+  ["2026-08-27", "Twins", "Red Sox"],
+  ["2026-08-27", "White Sox", "Orioles"],
+  ["2026-08-27", "Yankees", "Guardians"],
+  ["2026-08-28", "Angels", "Astros"],
+  ["2026-08-28", "Blue Jays", "Tigers"],
+  ["2026-08-28", "Rangers", "Athletics"],
+  ["2026-08-28", "Rays", "Mariners"],
+  ["2026-08-28", "Royals", "D-backs"],
+  ["2026-08-28", "Twins", "Red Sox"],
+  ["2026-08-28", "White Sox", "Orioles"],
+  ["2026-08-28", "Yankees", "Guardians"],
+  ["2026-08-29", "Angels", "Astros"],
+  ["2026-08-29", "Blue Jays", "Tigers"],
+  ["2026-08-29", "Rangers", "Athletics"],
+  ["2026-08-29", "Rays", "Mariners"],
+  ["2026-08-29", "Royals", "D-backs"],
+  ["2026-08-29", "Twins", "Red Sox"],
+  ["2026-08-29", "White Sox", "Orioles"],
+  ["2026-08-29", "Yankees", "Guardians"],
+  ["2026-08-31", "Angels", "Guardians"],
+  ["2026-08-31", "Blue Jays", "Orioles"],
+  ["2026-08-31", "Mariners", "Astros"],
+  ["2026-08-31", "Phillies", "Twins"],
+  ["2026-08-31", "Rangers", "Rays"],
+  ["2026-08-31", "Royals", "Athletics"],
+  ["2026-08-31", "White Sox", "Red Sox"],
+  ["2026-08-31", "Yankees", "Tigers"],
+  ["2026-09-01", "Angels", "Guardians"],
+  ["2026-09-01", "Blue Jays", "Orioles"],
+  ["2026-09-01", "Mariners", "Astros"],
+  ["2026-09-01", "Phillies", "Twins"],
+  ["2026-09-01", "Rangers", "Rays"],
+  ["2026-09-01", "Royals", "Athletics"],
+  ["2026-09-01", "White Sox", "Red Sox"],
+  ["2026-09-01", "Yankees", "Tigers"],
+  ["2026-09-02", "Angels", "Guardians"],
+  ["2026-09-02", "Blue Jays", "Orioles"],
+  ["2026-09-02", "Mariners", "Astros"],
+  ["2026-09-02", "Phillies", "Twins"],
+  ["2026-09-02", "Rangers", "Rays"],
+  ["2026-09-02", "Royals", "Athletics"],
+  ["2026-09-02", "White Sox", "Red Sox"],
+  ["2026-09-02", "Yankees", "Tigers"],
+  ["2026-09-04", "Angels", "Tigers"],
+  ["2026-09-04", "Blue Jays", "Red Sox"],
+  ["2026-09-04", "Mariners", "Guardians"],
+  ["2026-09-04", "Rays", "Astros"],
+  ["2026-09-04", "Royals", "Rangers"],
+  ["2026-09-04", "Twins", "Athletics"],
+  ["2026-09-04", "White Sox", "Brewers"],
+  ["2026-09-04", "Yankees", "Orioles"],
+  ["2026-09-05", "Angels", "Tigers"],
+  ["2026-09-05", "Blue Jays", "Red Sox"],
+  ["2026-09-05", "Mariners", "Guardians"],
+  ["2026-09-05", "Rays", "Astros"],
+  ["2026-09-05", "Royals", "Rangers"],
+  ["2026-09-05", "Twins", "Athletics"],
+  ["2026-09-05", "White Sox", "Brewers"],
+  ["2026-09-05", "Yankees", "Orioles"],
+  ["2026-09-06", "Angels", "Tigers"],
+  ["2026-09-06", "Blue Jays", "Red Sox"],
+  ["2026-09-06", "Mariners", "Guardians"],
+  ["2026-09-06", "Rays", "Astros"],
+  ["2026-09-06", "Royals", "Rangers"],
+  ["2026-09-06", "Twins", "Athletics"],
+  ["2026-09-06", "White Sox", "Brewers"],
+  ["2026-09-06", "Yankees", "Orioles"],
+  ["2026-09-08", "Angels", "Orioles"],
+  ["2026-09-08", "Astros", "Guardians"],
+  ["2026-09-08", "Mariners", "Tigers"],
+  ["2026-09-08", "Pirates", "Blue Jays"],
+  ["2026-09-08", "Royals", "Rays"],
+  ["2026-09-08", "Twins", "Rangers"],
+  ["2026-09-08", "White Sox", "Athletics"],
+  ["2026-09-08", "Yankees", "Red Sox"],
+  ["2026-09-09", "Angels", "Orioles"],
+  ["2026-09-09", "Astros", "Guardians"],
+  ["2026-09-09", "Mariners", "Tigers"],
+  ["2026-09-09", "Pirates", "Blue Jays"],
+  ["2026-09-09", "Royals", "Rays"],
+  ["2026-09-09", "Twins", "Rangers"],
+  ["2026-09-09", "White Sox", "Athletics"],
+  ["2026-09-09", "Yankees", "Red Sox"],
+  ["2026-09-10", "Angels", "Orioles"],
+  ["2026-09-10", "Astros", "Guardians"],
+  ["2026-09-10", "Mariners", "Tigers"],
+  ["2026-09-10", "Pirates", "Blue Jays"],
+  ["2026-09-10", "Royals", "Rays"],
+  ["2026-09-10", "Twins", "Rangers"],
+  ["2026-09-10", "White Sox", "Athletics"],
+  ["2026-09-10", "Yankees", "Red Sox"],
+  ["2026-09-12", "Angels", "Red Sox"],
+  ["2026-09-12", "Astros", "Tigers"],
+  ["2026-09-12", "Blue Jays", "Athletics"],
+  ["2026-09-12", "Mariners", "Orioles"],
+  ["2026-09-12", "Rays", "Guardians"],
+  ["2026-09-12", "Twins", "Royals"],
+  ["2026-09-12", "White Sox", "Rangers"],
+  ["2026-09-12", "Yankees", "Giants"],
+  ["2026-09-13", "Angels", "Red Sox"],
+  ["2026-09-13", "Astros", "Tigers"],
+  ["2026-09-13", "Blue Jays", "Athletics"],
+  ["2026-09-13", "Mariners", "Orioles"],
+  ["2026-09-13", "Rays", "Guardians"],
+  ["2026-09-13", "Twins", "Royals"],
+  ["2026-09-13", "White Sox", "Rangers"],
+  ["2026-09-13", "Yankees", "Giants"],
+  ["2026-09-14", "Angels", "Red Sox"],
+  ["2026-09-14", "Astros", "Tigers"],
+  ["2026-09-14", "Blue Jays", "Athletics"],
+  ["2026-09-14", "Mariners", "Orioles"],
+  ["2026-09-14", "Rays", "Guardians"],
+  ["2026-09-14", "Twins", "Royals"],
+  ["2026-09-14", "White Sox", "Rangers"],
+  ["2026-09-14", "Yankees", "Giants"],
+  ["2026-09-16", "Astros", "Orioles"],
+  ["2026-09-16", "Blue Jays", "Rangers"],
+  ["2026-09-16", "Guardians", "Tigers"],
+  ["2026-09-16", "Mariners", "Red Sox"],
+  ["2026-09-16", "Phillies", "Angels"],
+  ["2026-09-16", "Twins", "Rays"],
+  ["2026-09-16", "White Sox", "Royals"],
+  ["2026-09-16", "Yankees", "Athletics"],
+  ["2026-09-17", "Astros", "Orioles"],
+  ["2026-09-17", "Blue Jays", "Rangers"],
+  ["2026-09-17", "Guardians", "Tigers"],
+  ["2026-09-17", "Mariners", "Red Sox"],
+  ["2026-09-17", "Phillies", "Angels"],
+  ["2026-09-17", "Twins", "Rays"],
+  ["2026-09-17", "White Sox", "Royals"],
+  ["2026-09-17", "Yankees", "Athletics"],
+  ["2026-09-18", "Astros", "Orioles"],
+  ["2026-09-18", "Blue Jays", "Rangers"],
+  ["2026-09-18", "Guardians", "Tigers"],
+  ["2026-09-18", "Mariners", "Red Sox"],
+  ["2026-09-18", "Phillies", "Angels"],
+  ["2026-09-18", "Twins", "Rays"],
+  ["2026-09-18", "White Sox", "Royals"],
+  ["2026-09-18", "Yankees", "Athletics"],
+  ["2026-09-20", "Angels", "Athletics"],
+  ["2026-09-20", "Astros", "Red Sox"],
+  ["2026-09-20", "Blue Jays", "Royals"],
+  ["2026-09-20", "Guardians", "Orioles"],
+  ["2026-09-20", "Mariners", "Nationals"],
+  ["2026-09-20", "Rays", "Tigers"],
+  ["2026-09-20", "White Sox", "Twins"],
+  ["2026-09-20", "Yankees", "Rangers"],
+  ["2026-09-21", "Angels", "Athletics"],
+  ["2026-09-21", "Astros", "Red Sox"],
+  ["2026-09-21", "Blue Jays", "Royals"],
+  ["2026-09-21", "Guardians", "Orioles"],
+  ["2026-09-21", "Mariners", "Nationals"],
+  ["2026-09-21", "Rays", "Tigers"],
+  ["2026-09-21", "White Sox", "Twins"],
+  ["2026-09-21", "Yankees", "Rangers"],
+  ["2026-09-22", "Angels", "Athletics"],
+  ["2026-09-22", "Astros", "Red Sox"],
+  ["2026-09-22", "Blue Jays", "Royals"],
+  ["2026-09-22", "Guardians", "Orioles"],
+  ["2026-09-22", "Mariners", "Nationals"],
+  ["2026-09-22", "Rays", "Tigers"],
+  ["2026-09-22", "White Sox", "Twins"],
+  ["2026-09-22", "Yankees", "Rangers"],
+  ["2026-09-24", "Angels", "Rangers"],
+  ["2026-09-24", "Blue Jays", "Twins"],
+  ["2026-09-24", "Brewers", "Astros"],
+  ["2026-09-24", "Guardians", "Red Sox"],
+  ["2026-09-24", "Mariners", "Athletics"],
+  ["2026-09-24", "Tigers", "Orioles"],
+  ["2026-09-24", "White Sox", "Rays"],
+  ["2026-09-24", "Yankees", "Royals"],
+  ["2026-09-25", "Angels", "Rangers"],
+  ["2026-09-25", "Blue Jays", "Twins"],
+  ["2026-09-25", "Brewers", "Astros"],
+  ["2026-09-25", "Guardians", "Red Sox"],
+  ["2026-09-25", "Mariners", "Athletics"],
+  ["2026-09-25", "Tigers", "Orioles"],
+  ["2026-09-25", "White Sox", "Rays"],
+  ["2026-09-25", "Yankees", "Royals"],
+  ["2026-09-26", "Angels", "Rangers"],
+  ["2026-09-26", "Blue Jays", "Twins"],
+  ["2026-09-26", "Brewers", "Astros"],
+  ["2026-09-26", "Guardians", "Red Sox"],
+  ["2026-09-26", "Mariners", "Athletics"],
+  ["2026-09-26", "Tigers", "Orioles"],
+  ["2026-09-26", "White Sox", "Rays"],
+  ["2026-09-26", "Yankees", "Royals"],
+  ["2026-09-28", "Angels", "Royals"],
+  ["2026-09-28", "Astros", "Athletics"],
+  ["2026-09-28", "Blue Jays", "White Sox"],
+  ["2026-09-28", "Guardians", "Cardinals"],
+  ["2026-09-28", "Mariners", "Rangers"],
+  ["2026-09-28", "Rays", "Orioles"],
+  ["2026-09-28", "Tigers", "Red Sox"],
+  ["2026-09-28", "Yankees", "Twins"],
+  ["2026-09-29", "Angels", "Royals"],
+  ["2026-09-29", "Astros", "Athletics"],
+  ["2026-09-29", "Blue Jays", "White Sox"],
+  ["2026-09-29", "Guardians", "Cardinals"],
+  ["2026-09-29", "Mariners", "Rangers"],
+  ["2026-09-29", "Rays", "Orioles"],
+  ["2026-09-29", "Tigers", "Red Sox"],
+  ["2026-09-29", "Yankees", "Twins"],
+  ["2026-09-30", "Angels", "Royals"],
+  ["2026-09-30", "Astros", "Athletics"],
+  ["2026-09-30", "Blue Jays", "White Sox"],
+  ["2026-09-30", "Guardians", "Cardinals"],
+  ["2026-09-30", "Mariners", "Rangers"],
+  ["2026-09-30", "Rays", "Orioles"],
+  ["2026-09-30", "Tigers", "Red Sox"],
+  ["2026-09-30", "Yankees", "Twins"],
+  ["2026-10-02", "Angels", "Twins"],
+  ["2026-10-02", "Astros", "Rangers"],
+  ["2026-10-02", "Blue Jays", "Rays"],
+  ["2026-10-02", "Guardians", "Athletics"],
+  ["2026-10-02", "Mariners", "Royals"],
+  ["2026-10-02", "Orioles", "Red Sox"],
+  ["2026-10-02", "Pirates", "Tigers"],
+  ["2026-10-02", "Yankees", "White Sox"],
+  ["2026-10-03", "Angels", "Twins"],
+  ["2026-10-03", "Astros", "Rangers"],
+  ["2026-10-03", "Blue Jays", "Rays"],
+  ["2026-10-03", "Guardians", "Athletics"],
+  ["2026-10-03", "Mariners", "Royals"],
+  ["2026-10-03", "Orioles", "Red Sox"],
+  ["2026-10-03", "Pirates", "Tigers"],
+  ["2026-10-03", "Yankees", "White Sox"],
+  ["2026-10-04", "Angels", "Twins"],
+  ["2026-10-04", "Astros", "Rangers"],
+  ["2026-10-04", "Blue Jays", "Rays"],
+  ["2026-10-04", "Guardians", "Athletics"],
+  ["2026-10-04", "Mariners", "Royals"],
+  ["2026-10-04", "Orioles", "Red Sox"],
+  ["2026-10-04", "Pirates", "Tigers"],
+  ["2026-10-04", "Yankees", "White Sox"]
  ],
  "BREF": null,
  "SYNTHETIC": [],
