@@ -95,9 +95,22 @@ def ramp_for(v, lo, hi):
 
 
 # ------------------------------------------------------------------ wild card race
-race_order = ["Yankees", "Red Sox", "Rangers", "Tigers", "Guardians", "Twins",
-              "Blue Jays", "Mariners", "Orioles"]
-div_leaders = {"Rays", "White Sox", "Astros"}
+# Who leads each division, and who is chasing, both read off the current standings.
+# These were literals — a fixed {Rays, White Sox, Astros} and a fixed list of nine
+# challengers — so the table silently went wrong the moment a division changed hands:
+# a fallen leader would have been missing from the race entirely, and the new leader
+# would still have been listed as a wild-card contender.
+def _winpct(t):
+    v = R["rivals"][t]
+    return v["w"] / (v["w"] + v["l"])
+
+
+div_leaders = {max(members, key=_winpct) for members in _D.DIVISIONS.values()}
+_chasers = sorted((t for t in R["rivals"] if t not in div_leaders),
+                  key=_winpct, reverse=True)
+race_order = _chasers[:9]
+if JAYS not in race_order:              # always show Toronto, however far back
+    race_order = _chasers[:8] + [JAYS]
 wc_rows = []
 jays_pct = W / (W + L)
 for t in race_order:
@@ -133,7 +146,10 @@ for i, r in enumerate(wc_rows):
 
 # ------------------------------------------------------------------ win curve
 curve = {int(k): v for k, v in R["win_curve"].items()}
-xs = [w for w in sorted(curve) if 76 <= w <= 88]
+# The chart used to be clipped to a literal 76-88, which cut the curve off for any club
+# outside that band. sim.py already bounds win_curve to the simulated 0.5-99.5 percentile
+# range, so plot what it produced.
+xs = sorted(curve)
 ys = [curve[w][0] for w in xs]
 
 CW, CH = 660, 250
@@ -343,6 +359,51 @@ for _k in sorted(_dist):
 series_pill = (f"Qualifies winning fewer than {series_floor} of {P['n_series']} series "
                f"less than 10% of the time")
 
+# ---- three numbers the model already computed but the page never showed ----
+ELIM = R["elimination_number"]
+elim_note = (f"The {ELIM}{'st' if ELIM % 10 == 1 and ELIM != 11 else 'nd' if ELIM % 10 == 2 and ELIM != 12 else 'rd' if ELIM % 10 == 3 and ELIM != 13 else 'th'} "
+             f"loss from here leaves Toronto short of the {CUT_TARGET}-win median cut "
+             f"line — {max(0, ELIM - 1)} to spare across {GL} games.")
+
+# the next stretch, at the pace the rest of the season actually demands
+NEXT = {int(k): v for k, v in R["next12"].items()}
+NEXT_N = R["next_n"]
+if NEXT:
+    _want = int(round(ROS_W / GL * NEXT_N)) if GL else 0
+    _pace = min(NEXT, key=lambda w: (abs(w - _want), -w))   # nearest total we sampled
+    _better = min((w for w in NEXT if w > _pace), default=None)
+    next_v = f"{_pace}&ndash;{NEXT_N - _pace}"
+    next_note = f"Matching the required pace holds the odds at {pct(NEXT[_pace][0])}."
+    if _better is not None:
+        next_note += f" Going {_better}&ndash;{NEXT_N - _better} instead: {pct(NEXT[_better][0])}."
+else:
+    next_v, next_note = "&mdash;", "Fewer games remain than this window needs."
+
+# how much of the chase is passing people rather than just winning
+PASS_N = len(CLUSTER)
+pass_v = f"{R['pass_given_in']:.1f} of {PASS_N}"
+pass_note = (f"Clubs in the {', '.join(CLUSTER)} cluster that Toronto finishes ahead of, "
+             f"averaged over the seasons where they qualify.")
+
+# ---- the three notes that used to assert last week's facts ----
+_spread = HI - LO
+ens_verdict = ("That is a narrow band — the number is coming from the standings and the "
+               "schedule, not from a modelling choice."
+               if _spread <= 0.06 else
+               "That is a wide band — how much you trust run differential over raw "
+               "W&ndash;L genuinely changes the answer.")
+
+_dep_team, _dep = max(R["dependency"].items(), key=lambda kv: abs(kv[1]["swing"]))
+_dep_games = sum(s["n"] for s in R["series"] if s["opp"] == _dep_team)
+dep_note = (f"<b>{_dep_team} are the single most important other club</b> for Toronto — "
+            f"a {abs(_dep['swing'])*100:.1f}-point swing between a cold and a hot finish"
+            + (f", and the two meet {_dep_games} more time"
+               f"{'s' if _dep_games != 1 else ''} this season."
+               if _dep_games else ", though they do not meet again."))
+
+_leaders_txt = ", ".join(TEAM_ABBR.get(t, t)
+                         for t in sorted(div_leaders, key=_winpct, reverse=True))
+
 HTML = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -457,6 +518,14 @@ input[type=range].sld::-moz-range-thumb{{width:28px;height:28px;border-radius:50
  font-variant-numeric:tabular-nums}}
 .statv{{font-size:40px;font-weight:800;letter-spacing:-.03em;line-height:1.05;color:{C['navy']}}}
 .statl{{font-size:11.5px;color:{C['ink2']};margin-top:7px}}
+.facts{{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:13px}}
+.fact{{background:{C['card2']};border-radius:8px;padding:10px 11px}}
+.factv{{font-size:19px;font-weight:800;color:{C['navy']};line-height:1.1;
+ font-variant-numeric:tabular-nums}}
+.factl{{font-size:10px;color:{C['mute']};text-transform:uppercase;letter-spacing:.04em;
+ font-weight:700;margin-top:5px}}
+.factn{{font-size:11px;color:{C['ink2']};margin-top:6px;line-height:1.38}}
+@media(max-width:560px){{.facts{{grid-template-columns:1fr}}}}
 .pill{{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.08em;
  text-transform:uppercase;padding:4px 9px;border-radius:20px;background:{C['card2']};
  color:{C['brand']};margin-top:10px}}
@@ -699,6 +768,17 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
       played .{int(W/(W+L)*1000)} ball all year, and win <b>{series_won:.1f}</b> of their
       {P['n_series']} remaining series in the runs where they qualify.</div>
     <div class="pill">{series_pill}</div>
+    <div class="facts">
+      <div class="fact"><div class="factv">{ELIM}</div>
+        <div class="factl">Elimination number</div>
+        <div class="factn">{elim_note}</div></div>
+      <div class="fact"><div class="factv">{next_v}</div>
+        <div class="factl">Next {NEXT_N} games</div>
+        <div class="factn">{next_note}</div></div>
+      <div class="fact"><div class="factv">{pass_v}</div>
+        <div class="factl">Clubs to pass</div>
+        <div class="factn">{pass_note}</div></div>
+    </div>
   </div>
 </div>
 
@@ -710,7 +790,7 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
         <th style="text-align:right">GB<br>of TOR</th><th style="text-align:right">Run<br>diff</th>
         <th style="text-align:right" class="hide-s">Proj</th><th>Playoff odds</th></tr></thead>
       <tbody>{wc_html}</tbody></table></div>
-    <div class="note">Division leaders (TB, CWS, HOU) are excluded — they occupy the
+    <div class="note">Division leaders ({_leaders_txt}) are excluded — they occupy the
       three automatic berths. <b>GB of TOR</b> is games ahead of Toronto: a positive
       number is a team the Jays must pass.</div>
   </div>
@@ -777,17 +857,14 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
     <h2>Scoreboard watching <span class="sub">— who to root against</span></h2>
     {dep_rows}
     <div class="note">Bar length is how much the Jays' odds move between a rival's
-      cold finish (25th percentile) and hot finish (75th). <b>Detroit is the single
-      most important other team in baseball</b> for Toronto — an 8.5-point swing,
-      and the Jays get three head-to-head games with them in September.</div>
+      cold finish (25th percentile) and hot finish (75th). {dep_note}</div>
 
-    <h2 style="margin-top:20px">Model sensitivity <span class="sub">— is 8% real?</span></h2>
+    <h2 style="margin-top:20px">Model sensitivity <span class="sub">— is {pct(ODDS,0)} real?</span></h2>
     {ens_rows}
     <div class="note">Ten specifications, varying how much weight run differential gets
       against raw W–L, how hard team strength is regressed, whether recent form counts,
       and the size of home-field advantage. <b>Every one lands between {pct(LO)} and
-      {pct(HI)}.</b> The number is low because of the run differential, and no
-      reasonable modelling choice rescues it.</div>
+      {pct(HI)}.</b> {ens_verdict}</div>
   </div>
 </div>
 

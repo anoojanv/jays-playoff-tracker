@@ -136,9 +136,14 @@ out["cut_wins"] = {
     "p50": float(np.percentile(np.floor(cut), 50)),
     "p90": float(np.percentile(np.floor(cut), 90)),
 }
-# standard magic-number form, clamped to the games that actually remain
-_elim = int(rem[JAYS] + 1 - (np.ceil(np.median(cut)) - D.AL[JAYS][0]))
-out["elimination_number"] = max(0, min(int(rem[JAYS]) + 1, _elim))
+# Elimination number against the median cut line: the number of further Jays losses
+# that leaves them short of it. Derived from cut_wins.p50 — the same figure the page
+# quotes as "the cut line" — so the two cannot disagree by a win, which they did when
+# this used ceil(median(cut)) on the raw tie-broken scores.
+_target = int(np.ceil(out["cut_wins"]["p50"]))
+_need = max(0, _target - D.AL[JAYS][0])
+out["cut_target_w"] = _target
+out["elimination_number"] = max(0, min(int(rem[JAYS]) + 1, int(rem[JAYS]) + 1 - _need))
 
 # streak requirement: P(in | Jays go X-Y over the next stretch)
 nnext = min(12, len(jays_game_ix))
