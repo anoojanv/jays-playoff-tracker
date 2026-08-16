@@ -146,6 +146,21 @@ def main():
         "GAMES": games,
         "BREF": None,                               # never depend on a live scrape
         "SYNTHETIC": [],
+        # a spread of injury cases so the table's three return states all render:
+        # a derived IL-minimum date, a hand-entered reported timeline, and an unknown
+        "INJURIES": [
+            {"name": "Dalton Reyes", "pos": "SP", "status": "15-Day Injured List",
+             "il_days": 15, "since": "2026-08-06", "eligible": "2026-08-21",
+             "note": None},
+            {"name": "Marcus Whitfield", "pos": "OF", "status": "10-Day Injured List",
+             "il_days": 10, "since": "2026-08-12", "eligible": "2026-08-22",
+             "note": None},
+            {"name": "Elias Thorne", "pos": "RP", "status": "60-Day Injured List",
+             "il_days": 60, "since": "2026-07-02", "eligible": "2026-08-31",
+             "note": "throwing off a mound, no rehab date set"},
+            {"name": "Nate Kowalski", "pos": "C", "status": "7-Day Injured List",
+             "il_days": 7, "since": None, "eligible": None, "note": None},
+        ],
         "fingerprint": fd.fingerprint(as_dicts(al), as_dicts(nl)),
     }
 

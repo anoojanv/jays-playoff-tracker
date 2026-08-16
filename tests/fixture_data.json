@@ -357,5 +357,43 @@
  ],
  "BREF": null,
  "SYNTHETIC": [],
+ "INJURIES": [
+  {
+   "name": "Dalton Reyes",
+   "pos": "SP",
+   "status": "15-Day Injured List",
+   "il_days": 15,
+   "since": "2026-08-06",
+   "eligible": "2026-08-21",
+   "note": null
+  },
+  {
+   "name": "Marcus Whitfield",
+   "pos": "OF",
+   "status": "10-Day Injured List",
+   "il_days": 10,
+   "since": "2026-08-12",
+   "eligible": "2026-08-22",
+   "note": null
+  },
+  {
+   "name": "Elias Thorne",
+   "pos": "RP",
+   "status": "60-Day Injured List",
+   "il_days": 60,
+   "since": "2026-07-02",
+   "eligible": "2026-08-31",
+   "note": "throwing off a mound, no rehab date set"
+  },
+  {
+   "name": "Nate Kowalski",
+   "pos": "C",
+   "status": "7-Day Injured List",
+   "il_days": 7,
+   "since": null,
+   "eligible": null,
+   "note": null
+  }
+ ],
  "fingerprint": "aeea088de2dcdeef"
 }

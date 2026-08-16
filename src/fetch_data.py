@@ -125,6 +125,85 @@ def schedule(team_id, start, final_dates):
     return games
 
 
+# Return dates MLB has not published but you have read somewhere reliable. Keyed by the
+# player's full name exactly as the API spells it; anything here overrides the derived
+# timeline and is marked on the page as a reported date rather than an IL minimum.
+INJURY_NOTES = {
+    # "Bo Bichette": "targeting a rehab assignment the week of Sep 8",
+}
+
+# How long each injured list keeps a player out, for the earliest-eligible-return date.
+IL_DAYS = {"D7": 7, "D10": 10, "D15": 15, "D60": 60}
+
+
+def _try_get(url, timeout=20):
+    """Single-attempt fetch that never raises. get() exits the build; this must not."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "jays-tracker/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode())
+    except Exception as e:
+        print(f"  note: optional fetch failed ({url.split('?')[0]}): {e}")
+        return None
+
+
+def injuries(team_id=141):
+    """Who is hurt, which IL, and the earliest they can be back.
+
+    Best-effort in the same way as bref_odds(): the roster endpoint is the only thing
+    this really needs, the transactions endpoint just sharpens the return date, and any
+    failure anywhere drops the section from the page rather than failing the build.
+    """
+    roster = _try_get(f"https://statsapi.mlb.com/api/v1/teams/{team_id}/roster"
+                      f"?rosterType=fullRoster&season={SEASON}")
+    if not roster or "roster" not in roster:
+        return []
+
+    hurt = []
+    for e in roster.get("roster", []):
+        st = (e.get("status") or {})
+        code = st.get("code", "")
+        if not code.startswith("D"):            # A = active, D* = an injured list
+            continue
+        hurt.append({
+            "name": (e.get("person") or {}).get("fullName", "?"),
+            "pos": (e.get("position") or {}).get("abbreviation", ""),
+            "status": st.get("description", code),
+            "il_days": IL_DAYS.get(code),
+            "since": None, "eligible": None, "note": None,
+        })
+    if not hurt:
+        return []
+
+    # when each player went on the IL, so "earliest return" is a real date
+    start = (datetime.date.fromisoformat(SEASON_END) - datetime.timedelta(days=250))
+    tx = _try_get(f"https://statsapi.mlb.com/api/v1/transactions?teamId={team_id}"
+                  f"&startDate={start.isoformat()}&endDate={SEASON_END}")
+    placed = {}
+    for t in (tx or {}).get("transactions", []):
+        if "injured list" not in (t.get("description", "") or "").lower():
+            continue
+        name = (t.get("person") or {}).get("fullName")
+        date = t.get("effectiveDate") or t.get("date")
+        if name and date:
+            placed[name] = max(placed.get(name, ""), date[:10])
+
+    by_name = {h["name"]: h for h in hurt}
+    for name, date in placed.items():
+        if name in by_name:
+            by_name[name]["since"] = date
+
+    for h in hurt:
+        if h["since"] and h["il_days"]:
+            h["eligible"] = (datetime.date.fromisoformat(h["since"])
+                             + datetime.timedelta(days=h["il_days"])).isoformat()
+        h["note"] = INJURY_NOTES.get(h["name"])
+
+    hurt.sort(key=lambda h: (h["eligible"] or "9999", h["name"]))
+    print(f"  injuries: {len(hurt)} on the IL")
+    return hurt
+
+
 def bref_odds():
     """Best-effort comparison number. Never fatal — the page hides the pill if absent."""
     try:
@@ -200,6 +279,7 @@ def main():
         "AL": {k: [v["w"], v["l"], v["rs"], v["ra"]] for k, v in al.items()},
         "NL": {k: [v["w"], v["l"], v["rs"], v["ra"]] for k, v in nl.items()},
         "DIVISIONS": DIVISIONS, "GAMES": games, "BREF": bref_odds(),
+        "INJURIES": injuries(),
         "SYNTHETIC": [list(g) for g in SYNTHETIC_GAMES],
         "fingerprint": fingerprint(al, nl),
     }

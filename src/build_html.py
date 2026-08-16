@@ -154,7 +154,8 @@ ys = [curve[w][0] for w in xs]
 
 CW, CH = 660, 250
 PADL, PADR, PADT, PADB = 44, 14, 16, 34
-px = lambda w: PADL + (w - xs[0]) / (xs[-1] - xs[0]) * (CW - PADL - PADR)
+_xspan = (xs[-1] - xs[0]) or 1          # a decided race can leave one bucket
+px = lambda w: PADL + (w - xs[0]) / _xspan * (CW - PADL - PADR)
 py = lambda p: PADT + (1 - p) * (CH - PADT - PADB)
 
 pts = " ".join(f"{px(w):.1f},{py(p):.1f}" for w, p in zip(xs, ys))
@@ -164,6 +165,20 @@ curve_marks = []
 for target, lab in [(R["wins_10"], "10%"), (R["wins_50"], "50%"), (R["wins_90"], "90%")]:
     if target and xs[0] <= target <= xs[-1]:
         curve_marks.append((target, curve[target][0], lab))
+
+_w10, _w90 = R["wins_10"], R["wins_90"]
+if _w10 in curve and _w90 in curve and _w90 > _w10:
+    _p10, _p90 = curve[_w10][0], curve[_w90][0]
+    curve_note = (
+        f"The curve is steep exactly where Toronto sits. <b>{_w10} wins is a "
+        f"{_p10*100:.0f}% proposition; {_w90} wins is a {_p90*100:.0f}% one.</b> "
+        f"Every win in between is worth roughly "
+        f"{(_p90-_p10)/(_w90-_w10)*100:.0f} points of playoff probability — which is why "
+        f"the leverage numbers below are as large as they are.")
+else:
+    # no win total clears 10% (eliminated) or none falls short of 90% (clinched)
+    curve_note = ("The race is settled: across the whole plausible range of final win "
+                  "totals the answer barely moves, so no single game shifts it much.")
 
 gridlines = ""
 for gy in [0, .25, .5, .75, 1.0]:
@@ -213,7 +228,9 @@ for si, s_ in enumerate(sp):
     d0 = datetime.date.fromisoformat(s_["start"]).strftime("%b %-d")
     d1 = datetime.date.fromisoformat(s_["end"]).strftime("%-d")
     col = ramp_for(s_["swing_series"], sw_lo, sw_hi)
-    bw = 8 + (s_["swing_series"] - sw_lo) / (sw_hi - sw_lo) * 92
+    # once the race is decided every swing is identical, so guard the range
+    bw = (8 + (s_["swing_series"] - sw_lo) / (sw_hi - sw_lo) * 92
+          if sw_hi > sw_lo else 50)
     opp_ab = TEAM_ABBR.get(s_["opp"], s_["opp"])
     btns = ""
     for k in range(n, -1, -1):
@@ -240,7 +257,8 @@ for si, s_ in enumerate(sp):
 # ------------------------------------------------------------------ dependency
 dep = R["dependency"]
 dep_items = sorted(dep.items(), key=lambda x: -x[1]["swing"])[:6]
-dmax = max(abs(v["swing"]) for _, v in dep_items)
+# zero once the race is decided — every rival swing collapses to nothing
+dmax = max(abs(v["swing"]) for _, v in dep_items) or 1.0
 dep_rows = ""
 for i, (t, v) in enumerate(dep_items):
     wpx = abs(v["swing"]) / dmax * 100
@@ -404,6 +422,128 @@ dep_note = (f"<b>{_dep_team} are the single most important other club</b> for To
 _leaders_txt = ", ".join(TEAM_ABBR.get(t, t)
                          for t in sorted(div_leaders, key=_winpct, reverse=True))
 
+
+def _ordinal(n):
+    suf = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suf}"
+
+
+# where Toronto actually sits in its own division — the header said "4th AL East" flat
+_own_div = next(d for d, members in _D.DIVISIONS.items() if JAYS in members)
+_div_rank = sorted(_D.DIVISIONS[_own_div], key=_winpct, reverse=True).index(JAYS) + 1
+div_pos = f"{_ordinal(_div_rank)} {_own_div}"
+
+# ---- header mark ----------------------------------------------------------------
+# An original monogram, not the club's logo: the Blue Jays' marks belong to the team and
+# to MLB, and this page carries a "not affiliated" notice. Same construction as the
+# favicon so the tab and the header agree. Inline because verify() forbids any external
+# reference — swap the paths for your own artwork if you want, but keep it inline.
+LOGO = (
+    '<svg class="logo" viewBox="0 0 64 64" role="img" aria-label="Blue Jays playoff '
+    'tracker mark" focusable="false">'
+    '<rect width="64" height="64" rx="15" fill="#0B1A33"/>'
+    '<path d="M15 45V19h12a6.3 6.3 0 010 12.6H15" stroke="#4691E8" stroke-width="5.2" '
+    'fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+    '<path d="M27 31.6a6.3 6.3 0 010 12.6H15" stroke="#4691E8" stroke-width="5.2" '
+    'fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+    '<path d="M38 19l6.5 24L51 19" stroke="#E8555F" stroke-width="5.2" fill="none" '
+    'stroke-linecap="round" stroke-linejoin="round"/></svg>')
+
+# ---- section navigation ----------------------------------------------------------
+SECTIONS = [("play", "Play it out"), ("takes", "What it takes"), ("race", "WC race"),
+            ("curve", "Wins needed"), ("roadmap", "Road map"),
+            ("watch", "Scoreboard"), ("calendar", "Calendar")]
+if _D.INJURIES:
+    SECTIONS.append(("injuries", "Injuries"))
+nav_html = "".join(f'<a href="#{sid}">{html.escape(lab)}</a>' for sid, lab in SECTIONS)
+
+# ---- injuries --------------------------------------------------------------------
+_inj_rows = ""
+for p in _D.INJURIES:
+    if p.get("note"):
+        ret, cls = html.escape(p["note"]), "reported"
+    elif p.get("eligible"):
+        _d = datetime.date.fromisoformat(p["eligible"])
+        _back = (_d - DATE).days
+        ret = (f"{_d.strftime('%b %-d')}"
+               + (f" &middot; {_back}d" if 0 < _back <= 60 else ""))
+        cls = "elig"
+    else:
+        ret, cls = "not yet set", "unknown"
+    _inj_rows += (
+        f'<tr><td class="ip">{html.escape(p["name"])}'
+        f'<span class="ipos">{html.escape(p.get("pos") or "")}</span></td>'
+        f'<td class="ist">{html.escape(p.get("status") or "")}</td>'
+        f'<td class="iret {cls}">{ret}</td></tr>')
+
+# ---- must-see calendar -----------------------------------------------------------
+# The remaining schedule as month grids, shaded by how much each game moves the odds,
+# with the five biggest circled. Replaces a flat top-five list: same information, plus
+# every other game around it, which is what a run-in actually looks like.
+_lev = R["leverage"]
+_lv = [g["leverage"] for g in _lev] or [0.0]
+_lmin, _lmax = min(_lv), max(_lv)
+_top5 = {(g["date"], g["opp"]) for g in sorted(_lev, key=lambda x: -x["leverage"])[:5]}
+_by_date = {}
+for g in _lev:
+    _by_date.setdefault(g["date"], []).append(g)
+
+
+def _ramp_ix(v):
+    if _lmax <= _lmin:
+        return 2
+    return min(4, int((v - _lmin) / (_lmax - _lmin) * 5))
+
+
+ramp_legend = "".join(f'<span style="background:{c}"></span>'
+                        for c in C["ramp"][::-1])
+
+cal_html = ""
+if _by_date:
+    _first = datetime.date.fromisoformat(min(_by_date))
+    _last = datetime.date.fromisoformat(max(_by_date))
+    _m = datetime.date(_first.year, _first.month, 1)
+    while _m <= _last:
+        _nxt = datetime.date(_m.year + (_m.month == 12), _m.month % 12 + 1, 1)
+        cells = ""
+        lead = (datetime.date(_m.year, _m.month, 1).weekday() + 1) % 7   # Sunday-first
+        cells += '<div class="cday out"></div>' * lead
+        d = datetime.date(_m.year, _m.month, 1)
+        while d < _nxt:
+            key = d.isoformat()
+            gs = _by_date.get(key)
+            if not gs:
+                cells += f'<div class="cday off"><i>{d.day}</i></div>'
+            else:
+                g = max(gs, key=lambda x: x["leverage"])
+                ix = _ramp_ix(g["leverage"])
+                bg = C["ramp"][::-1][ix]
+                star = (key, g["opp"]) in _top5
+                cells += (
+                    f'<div class="cday game{" key" if star else ""}" '
+                    f'style="background:{bg};color:{"#fff" if ix >= 2 else C["navy"]}" '
+                    f'title="{"vs" if g["home"] else "at"} {html.escape(g["opp"])} '
+                    f'&middot; {g["leverage"]*100:.1f} pts of playoff odds">'
+                    f'<i>{d.day}</i><b>{"" if g["home"] else "@"}'
+                    f'{html.escape(TEAM_ABBR.get(g["opp"], g["opp"][:3].upper()))}</b></div>')
+            d += datetime.timedelta(days=1)
+        cal_html += (f'<div class="cmon"><div class="cmname">'
+                     f'{_m.strftime("%B %Y")}</div><div class="cgrid">'
+                     + "".join(f'<div class="cdow">{x}</div>' for x in "SMTWTFS")
+                     + cells + '</div></div>')
+        _m = _nxt
+
+injuries_section = (f'''<div class="card" id="injuries" style="margin-top:14px">
+  <h2>Injury report <span class="sub">&mdash; {len(_D.INJURIES)} on the injured list</span></h2>
+  <table class="injt">
+    <thead><tr><th>Player</th><th>Status</th><th style="text-align:right">Earliest return</th></tr></thead>
+    <tbody>{_inj_rows}</tbody>
+  </table>
+  <div class="note">Status comes from the club\'s roster feed. <b>Earliest return</b> is the
+    first date the injured list allows, not a projection — a player can miss well past it.
+    Dates in red are reported timelines entered by hand.</div>
+</div>''' if _D.INJURIES else "")
+
 HTML = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -518,6 +658,68 @@ input[type=range].sld::-moz-range-thumb{{width:28px;height:28px;border-radius:50
  font-variant-numeric:tabular-nums}}
 .statv{{font-size:40px;font-weight:800;letter-spacing:-.03em;line-height:1.05;color:{C['navy']}}}
 .statl{{font-size:11.5px;color:{C['ink2']};margin-top:7px}}
+html{{scroll-behavior:smooth}}
+.logo{{width:46px;height:46px;flex:none;border-radius:11px;
+ box-shadow:0 1px 6px rgba(0,0,0,.28)}}
+.hdrid{{display:flex;align-items:center;gap:15px}}
+
+/* ---- section nav: sticky, so the page is navigable once it gets long ---- */
+.snav{{position:sticky;top:0;z-index:30;display:flex;gap:6px;overflow-x:auto;
+ background:rgba(234,241,250,.93);backdrop-filter:blur(8px);
+ padding:9px 2px;margin-bottom:14px;border-bottom:1px solid {C['grid']};
+ scrollbar-width:none}}
+.snav::-webkit-scrollbar{{display:none}}
+.snav a{{flex:none;font-size:11.5px;font-weight:700;letter-spacing:.01em;
+ color:{C['brand']};background:{C['surf']};border:1px solid {C['axis']};
+ border-radius:999px;padding:6px 12px;text-decoration:none;white-space:nowrap;
+ transition:background .15s,color .15s,border-color .15s}}
+.snav a:hover,.snav a:focus-visible{{background:{C['brand']};color:#fff;
+ border-color:{C['brand']};outline:none}}
+[id]{{scroll-margin-top:62px}}
+
+/* ---- injuries ---- */
+.injt{{width:100%;border-collapse:collapse;margin-top:4px}}
+.injt th{{font-size:10px;text-transform:uppercase;letter-spacing:.07em;
+ color:{C['mute']};text-align:left;font-weight:700;padding:0 8px 7px 0;
+ border-bottom:1px solid {C['grid']}}}
+.injt td{{padding:9px 8px 9px 0;border-bottom:1px solid {C['grid']};
+ font-size:13px;vertical-align:baseline}}
+.injt tr:last-child td{{border-bottom:none}}
+.ip{{font-weight:700;color:{C['navy']}}}
+.ipos{{font-size:10px;font-weight:700;color:{C['mute']};margin-left:7px;
+ letter-spacing:.06em}}
+.ist{{color:{C['ink2']};font-size:12px}}
+.iret{{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;
+ font-weight:700;font-size:12px}}
+.iret.elig{{color:{C['brand']}}}
+.iret.reported{{color:{C['redtext']};font-weight:600;white-space:normal;
+ text-align:right;max-width:190px}}
+.iret.unknown{{color:{C['mute']};font-weight:600}}
+
+/* ---- schedule calendar ---- */
+.cwrap{{display:flex;gap:16px;flex-wrap:wrap;margin-top:4px}}
+.cmon{{flex:1 1 260px;min-width:236px}}
+.cmname{{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+ color:{C['mute']};margin-bottom:7px}}
+.cgrid{{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}}
+.cdow{{font-size:9px;font-weight:700;color:{C['axis']};text-align:center;
+ padding-bottom:2px}}
+.cday{{aspect-ratio:1;border-radius:6px;position:relative;overflow:hidden;
+ display:flex;flex-direction:column;align-items:center;justify-content:center}}
+.cday.out{{background:transparent}}
+.cday.off{{background:{C['card2']}}}
+.cday i{{position:absolute;top:2px;left:4px;font-style:normal;font-size:8.5px;
+ font-weight:700;opacity:.62;font-variant-numeric:tabular-nums}}
+.cday.off i{{color:{C['axis']};opacity:1}}
+.cday b{{font-size:10.5px;font-weight:800;letter-spacing:-.02em;margin-top:5px}}
+.cday.key{{box-shadow:inset 0 0 0 2.5px {C['red']}}}
+.cleg{{display:flex;align-items:center;gap:9px;margin-top:12px;flex-wrap:wrap;
+ font-size:10.5px;color:{C['mute']}}}
+.clramp{{display:flex;gap:2px}}
+.clramp span{{width:17px;height:9px;border-radius:2px}}
+.clkey{{width:11px;height:11px;border-radius:3px;
+ box-shadow:inset 0 0 0 2.5px {C['red']};background:{C['card2']}}}
+@media(max-width:560px){{.cmon{{flex:1 1 100%}} .snav a{{font-size:11px;padding:5px 10px}}}}
 .facts{{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:13px}}
 .fact{{background:{C['card2']};border-radius:8px;padding:10px 11px}}
 .factv{{font-size:19px;font-weight:800;color:{C['navy']};line-height:1.1;
@@ -686,17 +888,22 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
 </style></head><body><div class="wrap">
 
 <div class="hdr">
-  <div>
+  <div class="hdrid">
+    {LOGO}
+    <div>
     <h1>TORONTO <span>BLUE JAYS</span> — PLAYOFF TRACKER</h1>
     <div class="stamp">Standings through {STAMP} · {R['nsim']:,} simulated seasons</div>
+    </div>
   </div>
   <div class="rec">
     <b>{W}–{L}</b>
-    <div>4th AL East · {GL} games left</div>
+    <div>{div_pos} · {GL} games left</div>
   </div>
 </div>
 
-<div class="panel">
+<nav class="snav" aria-label="Jump to section">{nav_html}</nav>
+
+<div class="panel" id="play">
   <div class="pnhead">
     <h2>Play it out <span class="sub">&mdash; drag the slider to set how Toronto finishes</span></h2>
     <span class="livetag">live</span>
@@ -760,7 +967,7 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
     {bref_pill}
   </div>
 
-  <div class="card">
+  <div class="card" id="takes">
     <h2>What it takes</h2>
     <div class="statv">{P['ros_needed_w']}&ndash;{P['ros_needed_l']}</div>
     <div class="statl">To reach <b>{CUT_TARGET} wins</b>, the median cut line &mdash; a
@@ -783,7 +990,7 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
 </div>
 
 <div class="grid2b">
-  <div class="card">
+  <div class="card" id="race">
     <h2>The AL Wild Card race <span class="sub">— three spots, nine teams</span></h2>
     <div class="tscroll"><table>
       <thead><tr><th>Team</th><th style="text-align:right">W–L</th>
@@ -795,7 +1002,7 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
       number is a team the Jays must pass.</div>
   </div>
 
-  <div class="card">
+  <div class="card" id="curve">
     <h2>How many wins is enough?</h2>
     <svg viewBox="0 0 {CW} {CH}" width="100%" role="img"
          aria-label="Probability of a playoff spot by final win total">
@@ -815,10 +1022,7 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
       <text x="{CW/2:.0f}" y="{CH-4}" text-anchor="middle" font-size="10"
         fill="{C['mute']}" letter-spacing="1">FINAL WIN TOTAL</text>
     </svg>
-    <div class="note">The curve is brutally steep. <b>81 wins is a {curve[R['wins_10']][0]*100:.0f}% proposition;
-      85 wins is a {curve[R['wins_90']][0]*100:.0f}% one.</b> Every single win between
-      81 and 85 is worth roughly 20 points of playoff probability — which is why the
-      leverage numbers below are so large this early.</div>
+    <div class="note">{curve_note}</div>
     <details><summary>Show the table</summary>
       <table><thead><tr><th>Final wins</th><th>Rest-of-season</th>
         <th style="text-align:right">Playoff odds</th></tr></thead><tbody>
@@ -830,7 +1034,7 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
 </div>
 
 <div class="grid2b">
-  <div class="card">
+  <div class="card" id="roadmap">
     <h2>The road map <span class="sub">&mdash; set any series yourself</span></h2>
     <div class="hint"><b>Tap any result below</b> to lock what the Jays do in that series
       &mdash; it turns red, the whole simulation re-runs, and the slider above moves to
@@ -853,7 +1057,7 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
       series and losing it.</div>
   </div>
 
-  <div class="card">
+  <div class="card" id="watch">
     <h2>Scoreboard watching <span class="sub">— who to root against</span></h2>
     {dep_rows}
     <div class="note">Bar length is how much the Jays' odds move between a rival's
@@ -868,10 +1072,21 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
   </div>
 </div>
 
-<div class="ms">
-  <h2>Must-see TV <span class="sub">— the five games that decide the season</span></h2>
+<div class="ms" id="calendar">
+  <h2>The run-in <span class="sub">— every game left, shaded by how much it moves the odds</span></h2>
+  <div class="cwrap">{cal_html}</div>
+  <div class="cleg">
+    <span>Lower leverage</span>
+    <span class="clramp">{ramp_legend}</span>
+    <span>Higher</span>
+    <span style="margin-left:6px"><span class="clkey"></span></span>
+    <span>the five that decide the season · <b>@</b> marks a road game</span>
+  </div>
+  <h2 style="margin-top:22px">Must-see TV</h2>
   {mustsee_rows}
 </div>
+
+{injuries_section}
 
 <div class="note">
 <b>Method.</b> Team strength is Pythagenpat expected win% (exponent = runs-per-game<sup>0.287</sup>)
