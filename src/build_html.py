@@ -40,16 +40,26 @@ else:
                    f"supports{_superlative}, and this model leans harder on run "
                    f"differential than theirs does.")
 
-# a hand-added makeup game is a thumb on the scale; say so on the page
+# any thumb on the schedule's scale — a game added or one removed — is stated on the
+# page. The build refuses to publish a silently adjusted schedule.
+def _glist(games):
+    return "; ".join(f"{a} at {h} on {datetime.date.fromisoformat(d).strftime('%b %-d')}"
+                     for d, a, h in games)
+
+
+_adj = []
 if _D.SYNTHETIC:
-    _sg = "; ".join(f"{a} at {h} on {datetime.date.fromisoformat(d).strftime('%b %-d')}"
-                    for d, a, h in _D.SYNTHETIC)
-    synthetic_note = (f" <b>One caveat:</b> {len(_D.SYNTHETIC)} makeup "
-                      f"game{'s' if len(_D.SYNTHETIC) > 1 else ''} not yet on MLB's "
-                      f"calendar {'were' if len(_D.SYNTHETIC) > 1 else 'was'} added by "
-                      f"hand so the schedule reconciles to 162 ({_sg}).")
-else:
-    synthetic_note = ""
+    _n = len(_D.SYNTHETIC)
+    _adj.append(f"{_n} makeup game{'s' if _n > 1 else ''} not yet on MLB's calendar "
+                f"{'were' if _n > 1 else 'was'} added so the schedule reconciles to 162 "
+                f"({_glist(_D.SYNTHETIC)})")
+if _D.REMOVED:
+    _n = len(_D.REMOVED)
+    _adj.append(f"{_n} game{'s' if _n > 1 else ''} the standings already count but the "
+                f"schedule still lists as upcoming "
+                f"{'were' if _n > 1 else 'was'} removed ({_glist(_D.REMOVED)})")
+synthetic_note = (f" <b>Schedule adjustments:</b> {'; and '.join(_adj)}."
+                  if _adj else "")
 
 # ---- palette (validated: see validate_palette.js runs) ----
 C = dict(
