@@ -14,26 +14,38 @@ R = json.load(open("results.json"))
 CUT = R["cut_wins"]["p50"]
 TARGET_W = int(math.ceil(CUT))
 
+# Every number below is conditioned on qualifying. Once a club is mathematically out,
+# nothing qualifies, the conditional means are all NaN, and int(ceil(NaN)) killed the
+# build — on exactly the day the page most needs to keep publishing.
+NQ = int(jays_in.sum())
+
+
+def cond(vals, mask, default):
+    """Mean of vals over mask, or `default` when the mask selects nothing."""
+    return float(vals[mask].mean()) if mask.any() else float(default)
+
+
 path = {}
 # conditional on making the playoffs, how did each series go?
 rows = []
 for s in series:
     sw = jays_won[s["ix"]].sum(axis=0)
     n = len(s["ix"])
-    e_all = sw.mean()
-    e_in = sw[jays_in].mean()
-    e_out = sw[~jays_in].mean()
+    e_all = float(sw.mean())
+    # with no qualifying seasons the honest answer is "you needed all of them"
+    e_in = cond(sw, jays_in, n)
+    e_out = cond(sw, ~jays_in, e_all)
     # P(in | won the series)
     won_series = sw > n / 2
     rows.append({
         "opp": s["opp"], "home": s["home"], "start": s["start"], "end": s["end"], "n": n,
         "opp_rec": f"{TEAMS[s['opp']][0]}-{TEAMS[s['opp']][1]}",
         "opp_talent": round(talent[s["opp"]], 4),
-        "exp": float(e_all), "need": float(e_in), "if_out": float(e_out),
-        "target": int(np.ceil(e_in - 1e-9)),
-        "p_in_if_win_series": float(jays_in[won_series].mean()),
-        "p_in_if_lose_series": float(jays_in[~won_series].mean()),
-        "swing_series": float(jays_in[won_series].mean() - jays_in[~won_series].mean()),
+        "exp": e_all, "need": e_in, "if_out": e_out,
+        "target": int(np.ceil(min(e_in, n) - 1e-9)),
+        "p_in_if_win_series": cond(jays_in, won_series, 0.0),
+        "p_in_if_lose_series": cond(jays_in, ~won_series, 0.0),
+        "swing_series": cond(jays_in, won_series, 0.0) - cond(jays_in, ~won_series, 0.0),
         "cond": {int(w): [float(jays_in[sw == w].mean()), float((sw == w).mean())]
                  for w in range(n + 1) if (sw == w).sum() >= 80},
     })
@@ -52,7 +64,8 @@ for r in rows:
     print(f"{r['start'][5:]}-{r['end'][5:]} {tag:<18} {r['opp_rec']:<10} "
           f"{r['exp']:5.2f} {r['need']:5.2f} {r['target']:4d} {r['swing_series']*100:9.1f}")
 print(f"\nsum of E[wins|qualify] across series = {tot_need:.1f} of {sum(r['n'] for r in rows)}")
-print(f"E[total wins | qualify] = {jays_wins[jays_in].mean():.1f}")
+print(f"E[total wins | qualify] = {cond(jays_wins, jays_in, float('nan')):.1f}"
+      + ("   (no qualifying seasons — Toronto is mathematically out)" if not NQ else ""))
 print(f"rest-of-season record needed for median cutline ({TARGET_W}W): "
       f"{ros_w}-{ros_l} ({ros_pct:.3f})")
 
@@ -66,21 +79,24 @@ for s in series:
     srec.append(sw)
 srec = np.array(srec)
 won_series_ct = (srec > np.array([[len(s["ix"])] for s in series]) / 2).sum(axis=0)
-print(f"\nseries won (of {len(series)}): all sims {won_series_ct.mean():.1f} | qualifying sims {won_series_ct[jays_in].mean():.1f}")
+print(f"\nseries won (of {len(series)}): all sims {won_series_ct.mean():.1f} | "
+      f"qualifying sims {cond(won_series_ct, jays_in, float('nan')):.1f}")
 dist_in = collections.Counter(won_series_ct[jays_in].tolist())
 print("distribution of series won in qualifying seasons:",
-      {k: round(v / jays_in.sum() * 100, 1) for k, v in sorted(dist_in.items())})
+      {k: round(v / NQ * 100, 1) for k, v in sorted(dist_in.items())} if NQ else "none")
 
 out = {
     "series_path": rows,
-    "series_won_needed": float(won_series_ct[jays_in].mean()),
+    "series_won_needed": cond(won_series_ct, jays_in, len(series)),
     "series_won_typical": float(won_series_ct.mean()),
     "n_series": len(series),
-    "e_wins_if_qualify": float(jays_wins[jays_in].mean()),
+    "e_wins_if_qualify": cond(jays_wins, jays_in, float(jays_wins.max())),
+    "n_qualifying_sims": NQ,
     "cut_target_w": TARGET_W,
     "ros_needed_w": ros_w,
     "ros_needed_l": ros_l,
     "ros_needed_pct": ros_pct,
-    "series_won_dist_qualify": {int(k): float(v / jays_in.sum()) for k, v in sorted(dist_in.items())},
+    "series_won_dist_qualify": ({int(k): float(v / NQ) for k, v in sorted(dist_in.items())}
+                                if NQ else {}),
 }
 json.dump(out, open("path.json", "w"), indent=1)

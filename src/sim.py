@@ -127,7 +127,8 @@ passed = np.zeros(NSIM, dtype=np.int8)
 for t in CLUSTER:
     passed += (score[J] > score[idx[t]])
 out["pass_dist"] = {int(k): float((passed == k).mean()) for k in range(len(CLUSTER) + 1)}
-out["pass_given_in"] = float(passed[jays_in].mean())
+# NaN when nothing qualifies; the page reads this straight
+out["pass_given_in"] = float(passed[jays_in].mean()) if jays_in.any() else 0.0
 
 # elimination / magic number vs the current WC3 holder (best non-playoff cutline)
 cut = np.sort(wc_score, axis=0)[-3]              # 3rd wild card score threshold

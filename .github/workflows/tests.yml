@@ -42,6 +42,9 @@ jobs:
       - name: Polling decision, every path
         run: python src/selftest_check.py
 
+      - name: The page still builds once the race is decided
+        run: python tests/test_endgame.py
+
       - name: Full pipeline against the fixture
         run: |
           mkdir -p build

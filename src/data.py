@@ -15,4 +15,5 @@ GAMES     = [tuple(g) for g in _D["GAMES"]]
 BREF      = _D.get("BREF")
 # makeup games added by hand in fetch_data.SYNTHETIC_GAMES; disclosed in the page footnote
 SYNTHETIC = [tuple(g) for g in _D.get("SYNTHETIC", [])]
+INJURIES = _D.get("INJURIES", [])
 FINGERPRINT = _D.get("fingerprint", "")

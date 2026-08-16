@@ -71,6 +71,35 @@ def schedule_payload(team_id, start):
     return {"dates": [{"date": d, "games": g} for d, g in sorted(by_date.items())]}
 
 
+# Realistic shapes for the two optional endpoints behind the injury report. This is the
+# only coverage that parsing has — the live API cannot be reached from a test — so the
+# payloads mirror the real ones: status codes on the roster, free-text descriptions on
+# the transactions feed, and a player who is hurt but has no placement transaction.
+ROSTER = {"roster": [
+    {"person": {"id": 1, "fullName": "Dalton Reyes"}, "position": {"abbreviation": "SP"},
+     "status": {"code": "D15", "description": "15-Day Injured List"}},
+    {"person": {"id": 2, "fullName": "Healthy Hank"}, "position": {"abbreviation": "1B"},
+     "status": {"code": "A", "description": "Active"}},
+    {"person": {"id": 3, "fullName": "Nate Kowalski"}, "position": {"abbreviation": "C"},
+     "status": {"code": "D7", "description": "7-Day Injured List"}},
+]}
+TRANSACTIONS = {"transactions": [
+    {"person": {"fullName": "Dalton Reyes"}, "date": "2026-08-06",
+     "effectiveDate": "2026-08-06",
+     "description": "Toronto Blue Jays placed SP Dalton Reyes on the 15-day injured list."},
+    {"person": {"fullName": "Healthy Hank"}, "date": "2026-05-01",
+     "description": "Toronto Blue Jays selected the contract of 1B Healthy Hank."},
+]}
+
+
+def fake_try_get(url, timeout=20):
+    if "/roster" in url:
+        return ROSTER
+    if "/transactions" in url:
+        return TRANSACTIONS
+    raise AssertionError(f"unexpected optional URL: {url}")
+
+
 def fake_get(url, tries=4):
     q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
     if "/standings" in url:
@@ -82,6 +111,7 @@ def fake_get(url, tries=4):
 
 def main():
     fd.get = fake_get
+    fd._try_get = fake_try_get
     fd.bref_odds = lambda: None                 # don't hit Baseball-Reference in a test
     # pretend it is 02:07 UTC on Aug 15 — i.e. 10:07pm ET on Aug 14, the real cron moment
     os.environ["AS_OF_OVERRIDE"] = "2026-08-15"
@@ -118,6 +148,17 @@ def main():
     if got["AL"]["Blue Jays"][:2] != AL["Blue Jays"][:2]:
         fails.append("Blue Jays record did not survive the round trip")
 
+    inj = {p["name"]: p for p in got.get("INJURIES", [])}
+    if "Healthy Hank" in inj:
+        fails.append("an active player was reported as injured")
+    if set(inj) != {"Dalton Reyes", "Nate Kowalski"}:
+        fails.append(f"wrong players on the IL: {sorted(inj)}")
+    elif inj["Dalton Reyes"]["eligible"] != "2026-08-21":
+        fails.append("15-day IL from Aug 6 should be eligible Aug 21, got "
+                     f"{inj['Dalton Reyes']['eligible']!r}")
+    elif inj["Nate Kowalski"]["eligible"] is not None:
+        fails.append("a player with no placement transaction must have no return date")
+
     print("\n" + "=" * 62)
     if fails:
         print("SELF-TEST FAILED")
@@ -129,6 +170,8 @@ def main():
           f"Blue Jays {got['AL']['Blue Jays'][0]}-{got['AL']['Blue Jays'][1]}")
     print("  short-name standings and full-name schedule both resolved")
     print("  all 15 AL clubs reconcile to 162")
+    print(f"  injury report: {len(got.get('INJURIES', []))} on the IL, "
+          "return dates derived from the transactions feed")
 
 
 if __name__ == "__main__":
