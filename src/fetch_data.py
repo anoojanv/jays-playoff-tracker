@@ -64,6 +64,14 @@ SYNTHETIC_GAMES = [
     # ("2026-09-23", "Angels", "Rangers"),
 ]
 
+# The mirror of SYNTHETIC_GAMES, for a club that reconciles to 163 rather than 161: a
+# game the feed still lists as scheduled even though it has been played. Add it here as
+# ("YYYY-MM-DD", "Away", "Home") to drop it by hand. Anything listed is disclosed in the
+# page's methodology footnote, exactly like a synthetic makeup.
+IGNORE_GAMES = [
+    # ("2026-08-15", "Twins", "Guardians"),
+]
+
 
 def fingerprint(al, nl):
     """Stable hash of every club's record. Any finished game changes it."""
@@ -134,6 +142,51 @@ INJURY_NOTES = {
 
 # How long each injured list keeps a player out, for the earliest-eligible-return date.
 IL_DAYS = {"D7": 7, "D10": 10, "D15": 15, "D60": 60}
+
+
+def remaining(games, al):
+    """Games still to play, per AL club."""
+    rem = {t: 0 for t in al}
+    for _, a, h in games:
+        if a in al: rem[a] += 1
+        if h in al: rem[h] += 1
+    return rem
+
+
+def drop_phantoms(games, al, as_of):
+    """Remove games that have obviously been played but are still listed as scheduled.
+
+    A club reconciling to 163 rather than 162 means the standings have counted a game
+    that the schedule feed has not yet marked final — a routine race between two MLB
+    endpoints, and one SYNTHETIC_GAMES cannot fix, since that only adds games.
+
+    A game is only dropped when both of these hold, which is what keeps this from
+    guessing:
+      * it is dated on or before as_of, i.e. the day of the last confirmed final, so it
+        cannot be a genuine future fixture; and
+      * every AL club in it is currently over 162. Both clubs played the phantom game,
+        so both of their gamesPlayed counts moved — if only one side is over, the
+        mismatch is something else and this leaves it alone.
+
+    Anything it cannot explain is left for the caller's 162 check to fail on.
+    """
+    dropped = []
+    while True:
+        rem = remaining(games, al)
+        over = {t for t in al if al[t]["gp"] + rem[t] > 162}
+        if not over:
+            break
+        cand = next((g for g in sorted(games)
+                     if g[0] <= as_of
+                     and [x for x in (g[1], g[2]) if x in al]
+                     and all(x in over for x in (g[1], g[2]) if x in al)), None)
+        if cand is None:
+            break                       # nothing defensible left to drop
+        games.remove(cand)
+        dropped.append(tuple(cand))
+        print(f"  note: dropped {cand[1]} at {cand[2]} on {cand[0]} — already counted in "
+              f"the standings but still listed as scheduled")
+    return dropped
 
 
 def _try_get(url, timeout=20):
@@ -251,27 +304,46 @@ def main():
     for g in SYNTHETIC_GAMES:
         games.append(list(g))
         print(f"  note: added synthetic makeup game {g[1]} at {g[2]} on {g[0]}")
+    ignored = []
+    for g in IGNORE_GAMES:
+        if list(g) in games:
+            games.remove(list(g))
+            ignored.append(tuple(g))
+            print(f"  note: ignoring {g[1]} at {g[2]} on {g[0]} by hand (IGNORE_GAMES)")
+        else:
+            print(f"  note: IGNORE_GAMES entry {g} is not in the feed — remove it")
     games.sort()
     print(f"  schedule: {len(games)} remaining games")
 
+    # as-of = the most recent day on which a game actually finished, not today.
+    # Computed before the 162 check because drop_phantoms needs it to tell a stale
+    # listing from a genuine future fixture.
+    as_of = max(final_dates) if final_dates else (today - datetime.timedelta(days=1)).isoformat()
+
+    # a club at 163 is the standings and the schedule disagreeing about a game that has
+    # already been played; resolve only what is unambiguous, then check as before
+    dropped = drop_phantoms(games, al, as_of)
+
     # every club must reconcile to exactly 162
-    rem = {t: 0 for t in al}
-    for _, a, h in games:
-        if a in al: rem[a] += 1
-        if h in al: rem[h] += 1
+    rem = remaining(games, al)
     bad = {t: al[t]["gp"] + rem[t] for t in al if al[t]["gp"] + rem[t] != 162}
     if bad:
         print("FATAL: schedule does not reconcile to 162 games:", file=sys.stderr)
         for t, n in sorted(bad.items()):
             print(f"  {t}: {al[t]['gp']} played + {rem[t]} remaining = {n}", file=sys.stderr)
-        print("\nUsually a postponed game MLB has not yet rescheduled. Either re-run later,\n"
-              "or add the makeup to SYNTHETIC_GAMES near the top of this file.",
-              file=sys.stderr)
+        short = [t for t, n in bad.items() if n < 162]
+        longs = [t for t, n in bad.items() if n > 162]
+        if short:
+            print("\nA club short of 162 is usually a postponement MLB has not yet\n"
+                  "rescheduled. Either re-run later, or add the makeup to SYNTHETIC_GAMES\n"
+                  "near the top of this file.", file=sys.stderr)
+        if longs:
+            print("\nA club past 162 is a game the standings count but the schedule still\n"
+                  "lists as scheduled. It usually clears within a poll or two; if it does\n"
+                  "not, add the stale fixture to IGNORE_GAMES near the top of this file.",
+                  file=sys.stderr)
         raise SystemExit(1)
     print("  reconciled: all 15 AL clubs at 162 games")
-
-    # as-of = the most recent day on which a game actually finished, not today
-    as_of = max(final_dates) if final_dates else (today - datetime.timedelta(days=1)).isoformat()
 
     data = {
         "season": SEASON, "as_of": as_of, "generated": datetime.datetime.now(
@@ -281,6 +353,7 @@ def main():
         "DIVISIONS": DIVISIONS, "GAMES": games, "BREF": bref_odds(),
         "INJURIES": injuries(),
         "SYNTHETIC": [list(g) for g in SYNTHETIC_GAMES],
+        "REMOVED": [list(g) for g in ignored + dropped],
         "fingerprint": fingerprint(al, nl),
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)

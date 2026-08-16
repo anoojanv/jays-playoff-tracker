@@ -140,6 +140,8 @@ games-played to 162 minus what it has left, so it reconciles by construction.
 ```bash
 python src/selftest_fetch.py    # the MLB fetch, with the network mocked
 python src/selftest_check.py    # the polling decision, all six paths
+python tests/test_reconcile.py  # the 162-game check, over- and under-count
+python tests/test_endgame.py    # the page still builds once the race is decided
 python tests/make_fixture.py    # rebuild the fixture (must be byte-identical; CI checks)
 ```
 
@@ -170,10 +172,21 @@ python src/build.py --no-fetch
 
 ## When something breaks
 
-**"schedule does not reconcile to 162 games"** — almost always a postponement MLB hasn't
-rescheduled yet, which leaves two clubs a game short. Either re-run tomorrow, or add the
-makeup to `SYNTHETIC_GAMES` at the top of `src/fetch_data.py`; anything listed there is
-disclosed in the page footnote. Remove it once the real game appears.
+**"schedule does not reconcile to 162 games"** — the standings and the schedule come
+from two MLB endpoints that don't update together, so a club can land either side of 162.
+The error names which, and the fix differs:
+
+*A club at 161* is a postponement MLB hasn't rescheduled, leaving two clubs a game short.
+Re-run tomorrow, or add the makeup to `SYNTHETIC_GAMES` at the top of `src/fetch_data.py`.
+
+*A club at 163* is a game the standings already count that the schedule still lists as
+upcoming. `drop_phantoms()` clears this automatically when it's unambiguous — the game is
+dated on or before the last confirmed final, and every AL club in it is over 162 — and
+refuses otherwise, so a real future fixture is never silently deleted. If one survives
+that, it usually clears within a poll or two; failing that, add it to `IGNORE_GAMES`.
+
+Either way the adjustment is stated in the page's methodology footnote. Remove the entry
+once the feed corrects itself.
 
 **Baseball-Reference comparison missing** — that scrape is best-effort. If B-Ref changes
 its markup the pill just disappears; the build still succeeds. Fix the regex in

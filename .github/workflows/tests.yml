@@ -39,6 +39,9 @@ jobs:
       - name: MLB fetch layer, network mocked
         run: python src/selftest_fetch.py
 
+      - name: Schedule reconciliation, both directions
+        run: python tests/test_reconcile.py
+
       - name: Polling decision, every path
         run: python src/selftest_check.py
 
