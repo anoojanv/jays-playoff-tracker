@@ -230,6 +230,22 @@ if cutx:
 sp = P["series_path"]
 sw_lo = min(s["swing_series"] for s in sp)
 sw_hi = max(s["swing_series"] for s in sp)
+# how big the exp-vs-need gap actually is, and where the hardest road sits
+_gaps = sorted(sp, key=lambda x: x["need"] - x["exp"], reverse=True)
+_worst = _gaps[0] if _gaps else None
+_road = [x for x in sp if not x["home"]]
+_hard = sorted(_road, key=lambda x: x["opp_talent"], reverse=True)[:2]
+if _worst:
+    _venues = " and ".join(f"{'at' if not x['home'] else 'against'} "
+                           f"{TEAM_ABBR.get(x['opp'], x['opp'])}" for x in _hard)
+    roadmap_note = (
+        f"the model expects about {_worst['exp']:.1f} of {_worst['n']} in the toughest "
+        f"series while a qualifying season needs {_worst['need']:.1f}, and that pattern "
+        f"repeats across all {len(sp)} of them"
+        + (f" — hardest {_venues}." if _hard else "."))
+else:
+    roadmap_note = "there are no series left to play."
+
 series_rows = ""
 for si, s_ in enumerate(sp):
     n = s_["n"]
@@ -359,6 +375,59 @@ SIM["seriesNeeded"] = int(round(P["series_won_needed"]))
 SIMJSON = json.dumps(SIM, separators=(",", ":"))
 APPJS = open("app.js").read()
 
+INJ_JS = r"""<script>
+/* Injury report: sort by any column, filter as you type. No dependencies and no browser
+   storage of any kind — the page is self-contained, and build.py's verify() enforces it. */
+(function () {
+  "use strict";
+  var table = document.getElementById("injTable");
+  if (!table) return;
+  var tbody = table.tBodies[0];
+  var rows = [].slice.call(tbody.rows);
+  var filter = document.getElementById("injFilter");
+  var empty = document.getElementById("injEmpty");
+  var count = document.getElementById("injCount");
+  var total = rows.length;
+  var key = "ret", dir = 1;
+
+  function sort() {
+    var sorted = rows.slice().sort(function (a, b) {
+      var x = a.dataset[key], y = b.dataset[key];
+      return x === y ? a.dataset.name.localeCompare(b.dataset.name)
+                     : (x < y ? -1 : 1) * dir;
+    });
+    sorted.forEach(function (r) { tbody.appendChild(r); });
+  }
+
+  function apply() {
+    var q = (filter && filter.value || "").trim().toLowerCase();
+    var shown = 0;
+    rows.forEach(function (r) {
+      var hit = !q || r.dataset.name.indexOf(q) > -1 || r.dataset.status.indexOf(q) > -1;
+      r.hidden = !hit;
+      if (hit) shown++;
+    });
+    if (empty) empty.hidden = shown !== 0;
+    if (count) count.textContent = shown === total ? total : shown + " of " + total;
+  }
+
+  [].forEach.call(table.querySelectorAll("th button"), function (btn) {
+    btn.addEventListener("click", function () {
+      var k = btn.dataset.sort;
+      dir = (k === key) ? -dir : 1;
+      key = k;
+      [].forEach.call(table.querySelectorAll("th button"), function (b) {
+        b.setAttribute("aria-sort", b === btn
+          ? (dir === 1 ? "ascending" : "descending") : "none");
+      });
+      sort();
+    });
+  });
+  if (filter) filter.addEventListener("input", apply);
+  sort();
+})();
+</script>"""
+
 # comparison odds are best-effort: hide the pill entirely if the scrape failed
 if EXT and EXT.get("odds"):
     _d = EXT.get("date")
@@ -443,22 +512,6 @@ _own_div = next(d for d, members in _D.DIVISIONS.items() if JAYS in members)
 _div_rank = sorted(_D.DIVISIONS[_own_div], key=_winpct, reverse=True).index(JAYS) + 1
 div_pos = f"{_ordinal(_div_rank)} {_own_div}"
 
-# ---- header mark ----------------------------------------------------------------
-# An original monogram, not the club's logo: the Blue Jays' marks belong to the team and
-# to MLB, and this page carries a "not affiliated" notice. Same construction as the
-# favicon so the tab and the header agree. Inline because verify() forbids any external
-# reference — swap the paths for your own artwork if you want, but keep it inline.
-LOGO = (
-    '<svg class="logo" viewBox="0 0 64 64" role="img" aria-label="Blue Jays playoff '
-    'tracker mark" focusable="false">'
-    '<rect width="64" height="64" rx="15" fill="#0B1A33"/>'
-    '<path d="M15 45V19h12a6.3 6.3 0 010 12.6H15" stroke="#4691E8" stroke-width="5.2" '
-    'fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
-    '<path d="M27 31.6a6.3 6.3 0 010 12.6H15" stroke="#4691E8" stroke-width="5.2" '
-    'fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
-    '<path d="M38 19l6.5 24L51 19" stroke="#E8555F" stroke-width="5.2" fill="none" '
-    'stroke-linecap="round" stroke-linejoin="round"/></svg>')
-
 # ---- section navigation ----------------------------------------------------------
 SECTIONS = [("play", "Play it out"), ("takes", "What it takes"), ("race", "WC race"),
             ("curve", "Wins needed"), ("roadmap", "Road map"),
@@ -480,8 +533,14 @@ for p in _D.INJURIES:
         cls = "elig"
     else:
         ret, cls = "not yet set", "unknown"
+    # sort keys travel as data-* so sorting never depends on parsing display text:
+    # "not yet set" has to sort last, and "Aug 21 · 7d" is not a date
+    _sret = p.get("eligible") or ("9998" if p.get("note") else "9999")
     _inj_rows += (
-        f'<tr><td class="ip">{html.escape(p["name"])}'
+        f'<tr data-name="{html.escape(p["name"].lower())}" '
+        f'data-status="{html.escape((p.get("status") or "").lower())}" '
+        f'data-ret="{_sret}">'
+        f'<td class="ip">{html.escape(p["name"])}'
         f'<span class="ipos">{html.escape(p.get("pos") or "")}</span></td>'
         f'<td class="ist">{html.escape(p.get("status") or "")}</td>'
         f'<td class="iret {cls}">{ret}</td></tr>')
@@ -544,11 +603,19 @@ if _by_date:
         _m = _nxt
 
 injuries_section = (f'''<div class="card" id="injuries" style="margin-top:14px">
-  <h2>Injury report <span class="sub">&mdash; {len(_D.INJURIES)} on the injured list</span></h2>
-  <table class="injt">
-    <thead><tr><th>Player</th><th>Status</th><th style="text-align:right">Earliest return</th></tr></thead>
+  <h2>Injury report <span class="sub">&mdash; <span id="injCount">{len(_D.INJURIES)}</span>
+    on the injured list</span></h2>
+  <input type="search" class="injq" id="injFilter" placeholder="Filter by player or status"
+         aria-label="Filter the injury report" autocomplete="off">
+  <table class="injt" id="injTable">
+    <thead><tr>
+      <th><button type="button" data-sort="name" aria-sort="none">Player</button></th>
+      <th><button type="button" data-sort="status" aria-sort="none">Status</button></th>
+      <th class="r"><button type="button" data-sort="ret" aria-sort="ascending">Earliest return</button></th>
+    </tr></thead>
     <tbody>{_inj_rows}</tbody>
   </table>
+  <div class="injempty" id="injEmpty" hidden>No player matches that filter.</div>
   <div class="note">Status comes from the club\'s roster feed. <b>Earliest return</b> is the
     first date the injured list allows, not a projection — a player can miss well past it.
     Dates in red are reported timelines entered by hand.</div>
@@ -569,35 +636,43 @@ HTML = f"""<!DOCTYPE html>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{background:{C['page']};color:{C['ink']};
+ background-image:radial-gradient(1100px 460px at 50% -180px,rgba(19,74,142,.10),transparent 70%);
+ background-repeat:no-repeat;
  font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
- padding:18px;line-height:1.45;-webkit-font-smoothing:antialiased}}
+ padding:20px 18px 44px;line-height:1.5;-webkit-font-smoothing:antialiased;
+ text-rendering:optimizeLegibility}}
 .wrap{{max-width:1120px;margin:0 auto}}
-.card{{background:{C['card']};border:1px solid rgba(19,74,142,.13);border-radius:14px;
+::selection{{background:rgba(28,95,173,.18)}}
+:focus-visible{{outline:2px solid {C['brand']};outline-offset:2px;border-radius:4px}}
+.card{{background:{C['card']};border:1px solid rgba(19,74,142,.07);border-radius:16px;box-shadow:0 1px 2px rgba(16,38,75,.04),0 8px 24px -12px rgba(16,38,75,.16);
  padding:18px 20px;box-shadow:0 1px 2px rgba(19,74,142,.05),0 2px 10px rgba(19,74,142,.04)}}
-h2{{font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:{C['brand']};
+h2{{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:{C['brand']};
+ display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;
  font-weight:800;margin-bottom:14px}}
 .sub{{font-size:12px;color:{C['ink2']};font-weight:400;letter-spacing:0;text-transform:none}}
 
 /* header - the brand block */
-.hdr{{background:{C['brand']};border-radius:14px;padding:22px 26px;
+.hdr{{background:linear-gradient(135deg,{C['brand']} 0%,#0E3A72 100%);border-radius:18px;padding:26px 28px;
  display:flex;align-items:center;gap:20px;margin-bottom:14px;position:relative;
  overflow:hidden;box-shadow:0 2px 14px rgba(19,74,142,.22)}}
 .hdr:before{{content:"";position:absolute;left:0;top:0;bottom:0;width:7px;
  background:{C['red']}}}
-.hdr h1{{font-size:27px;font-weight:800;letter-spacing:-.02em;line-height:1.1;color:#fff}}
+.hdr h1{{font-size:26px;font-weight:800;letter-spacing:-.025em;line-height:1.12;color:#fff;text-wrap:balance}}
 .hdr h1 span{{color:#fff;background:{C['red']};padding:0 8px;border-radius:5px;
  margin:0 2px}}
 .hdr .stamp{{font-size:12px;color:rgba(255,255,255,.74);margin-top:6px}}
 .hdr .rec{{margin-left:auto;text-align:right;color:#fff}}
-.hdr .rec b{{font-size:32px;font-weight:800;letter-spacing:-.02em}}
+.hdr .rec b{{font-size:34px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;display:block;line-height:1}}
 .hdr .rec div{{font-size:11px;color:rgba(255,255,255,.72);letter-spacing:.08em;
  text-transform:uppercase}}
 
 /* ---- the control panel: this is the thing you touch, so it gets its own language.
    Blue = model data. RED = your input. Nothing red on this page is a readout. ---- */
-.panel{{background:{C['card']};border:2px solid {C['red']};border-radius:16px;
- padding:18px 22px 20px;margin-bottom:14px;
- box-shadow:0 2px 4px rgba(19,74,142,.06),0 6px 22px rgba(232,41,28,.10)}}
+.panel{{background:{C['card']};border:1px solid rgba(232,41,28,.30);border-radius:18px;
+ padding:20px 24px 22px;margin-bottom:16px;position:relative;overflow:hidden;
+ box-shadow:0 1px 2px rgba(16,38,75,.05),0 10px 30px -14px rgba(232,41,28,.30)}}
+.panel:before{{content:"";position:absolute;left:0;right:0;top:0;height:3px;
+ background:linear-gradient(90deg,{C['red']},{C['brand']})}}
 .pnhead{{display:flex;align-items:center;gap:10px;margin-bottom:4px}}
 .pnhead h2{{margin-bottom:0;color:{C['redtext']}}}
 .livetag{{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
@@ -679,19 +754,45 @@ html{{scroll-behavior:smooth}}
  padding:9px 2px;margin-bottom:14px;border-bottom:1px solid {C['grid']};
  scrollbar-width:none}}
 .snav::-webkit-scrollbar{{display:none}}
-.snav a{{flex:none;font-size:11.5px;font-weight:700;letter-spacing:.01em;
- color:{C['brand']};background:{C['surf']};border:1px solid {C['axis']};
- border-radius:999px;padding:6px 12px;text-decoration:none;white-space:nowrap;
- transition:background .15s,color .15s,border-color .15s}}
+.snav a{{flex:none;font-size:11.5px;font-weight:650;letter-spacing:.005em;
+ color:{C['ink2']};background:rgba(255,255,255,.7);border:1px solid rgba(19,74,142,.10);
+ border-radius:999px;padding:6.5px 13px;text-decoration:none;white-space:nowrap;
+ transition:background .18s ease,color .18s ease,border-color .18s ease}}
 .snav a:hover,.snav a:focus-visible{{background:{C['brand']};color:#fff;
  border-color:{C['brand']};outline:none}}
 [id]{{scroll-margin-top:62px}}
 
 /* ---- injuries ---- */
 .injt{{width:100%;border-collapse:collapse;margin-top:4px}}
-.injt th{{font-size:10px;text-transform:uppercase;letter-spacing:.07em;
- color:{C['mute']};text-align:left;font-weight:700;padding:0 8px 7px 0;
- border-bottom:1px solid {C['grid']}}}
+.injt th{{padding:0 8px 7px 0;border-bottom:1px solid {C['grid']};text-align:left}}
+.injt th.r{{text-align:right}}
+.injt th button{{font:inherit;font-size:10px;text-transform:uppercase;letter-spacing:.07em;
+ color:{C['mute']};font-weight:700;background:none;border:0;padding:0;cursor:pointer;
+ display:inline-flex;align-items:center;gap:4px;transition:color .15s}}
+.injt th button:hover{{color:{C['brand']}}}
+.injt th button:after{{content:"";width:0;height:0;opacity:.0;
+ border-left:3.5px solid transparent;border-right:3.5px solid transparent;
+ border-bottom:4.5px solid currentColor;transition:opacity .15s,transform .15s}}
+.injt th button[aria-sort="ascending"]:after{{opacity:.85}}
+.injt th button[aria-sort="descending"]:after{{opacity:.85;transform:rotate(180deg)}}
+.injt th button[aria-sort="ascending"],.injt th button[aria-sort="descending"]{{color:{C['brand']}}}
+.injq{{width:100%;max-width:280px;font:inherit;font-size:12px;color:{C['ink']};
+ background:{C['card2']};border:1px solid rgba(19,74,142,.10);border-radius:9px;
+ padding:7px 11px;margin:2px 0 12px;transition:border-color .15s,background .15s}}
+.injq:focus{{outline:none;border-color:{C['brand']};background:{C['surf']}}}
+.injq::placeholder{{color:{C['axis']}}}
+.injempty{{font-size:12px;color:{C['mute']};padding:14px 0 4px}}
+
+/* ---- footer ---- */
+.foot{{display:flex;align-items:center;justify-content:space-between;gap:16px;
+ flex-wrap:wrap;margin-top:20px;padding-top:15px;border-top:1px solid {C['grid']}}}
+.byline{{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:{C['mute']};
+ font-weight:600;white-space:nowrap}}
+.byline b{{color:{C['brand']};font-weight:800;letter-spacing:.04em}}
+.footmeta{{font-size:10.5px;color:{C['mute']};line-height:1.6;text-align:right;flex:1;
+ min-width:220px}}
+@media(max-width:560px){{.foot{{flex-direction:column;align-items:flex-start}}
+ .footmeta{{text-align:left}}}}
 .injt td{{padding:9px 8px 9px 0;border-bottom:1px solid {C['grid']};
  font-size:13px;vertical-align:baseline}}
 .injt tr:last-child td{{border-bottom:none}}
@@ -742,8 +843,9 @@ html{{scroll-behavior:smooth}}
  text-transform:uppercase;padding:4px 9px;border-radius:20px;background:{C['card2']};
  color:{C['brand']};margin-top:10px}}
 
-.grid2{{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}}
-.grid2b{{display:grid;grid-template-columns:1.15fr .85fr;gap:14px;margin-bottom:14px;
+.grid1{{margin-bottom:16px}}
+.grid2{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}}
+.grid2b{{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;margin-bottom:16px;
  align-items:start}}
 
 /* table */
@@ -820,7 +922,7 @@ td.ex{{color:{C['mute']};text-align:right;width:44px}}
 .msswing span{{display:block;font-size:9px;color:{C['mute']};letter-spacing:.05em;
  text-transform:uppercase;line-height:1.3;margin-top:2px}}
 
-.note{{font-size:10.5px;color:{C['ink2']};line-height:1.65;margin-top:14px}}
+.note{{font-size:10.5px;color:{C['ink2']};line-height:1.7;margin-top:15px;padding-top:13px;border-top:1px solid {C['grid']}}}
 .note b{{color:{C['navy']}}}
 details summary{{cursor:pointer;font-size:11px;color:{C['brand']};margin-top:10px;
  font-weight:600}}
@@ -898,12 +1000,9 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
 </style></head><body><div class="wrap">
 
 <div class="hdr">
-  <div class="hdrid">
-    {LOGO}
-    <div>
+  <div>
     <h1>TORONTO <span>BLUE JAYS</span> — PLAYOFF TRACKER</h1>
     <div class="stamp">Standings through {STAMP} · {R['nsim']:,} simulated seasons</div>
-    </div>
   </div>
   <div class="rec">
     <b>{W}–{L}</b>
@@ -959,24 +1058,7 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
   </div>
 </div>
 
-<div class="grid2">
-  <div class="card">
-    <h2>How solid is that number?</h2>
-    <div class="range">
-      <div class="rtrack">
-        <div class="rfill" style="left:{(LO-0.05)/0.14*100:.0f}%;width:{(HI-LO)/0.14*100:.0f}%"></div>
-        <div class="rtick" style="left:{(ODDS-0.05)/0.14*100:.0f}%"></div>
-      </div>
-      <div class="rlab"><span>{pct(LO)} floor</span>
-        <span>10-model range</span><span>{pct(HI)} ceiling</span></div>
-    </div>
-    <div class="statl" style="margin-top:12px">Ten model specifications, varying how much
-      run differential counts against raw W&ndash;L, how hard team strength is regressed,
-      whether recent form matters, and the size of home-field advantage. Every one lands
-      between {pct(LO)} and {pct(HI)}.</div>
-    {bref_pill}
-  </div>
-
+<div class="grid1">
   <div class="card" id="takes">
     <h2>What it takes</h2>
     <div class="statv">{P['ros_needed_w']}&ndash;{P['ros_needed_l']}</div>
@@ -985,6 +1067,7 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
       played .{int(W/(W+L)*1000)} ball all year, and win <b>{series_won:.1f}</b> of their
       {P['n_series']} remaining series in the runs where they qualify.</div>
     <div class="pill">{series_pill}</div>
+    {bref_pill}
     <div class="facts">
       <div class="fact"><div class="factv">{ELIM}</div>
         <div class="factl">Elimination number</div>
@@ -1061,10 +1144,8 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
     <div class="note"><b>Need</b> is the average number of wins Toronto takes from that
       series in the simulated seasons where they qualify; <b>Exp</b> is what the model
       actually expects them to win. <b>The gap between those two columns is the whole
-      problem</b> — the Jays are projected to win about 1.4 of 3 in the hard series and
-      need close to 2 in every single one, all thirteen of them, including on the road
-      in Tampa and the Bronx. <b>Swing</b> is the gap in playoff odds between taking a
-      series and losing it.</div>
+      problem</b> — {roadmap_note} <b>Swing</b> is the gap in playoff odds between
+      taking a series and losing it.</div>
   </div>
 
   <div class="card" id="watch">
@@ -1115,14 +1196,17 @@ call-ups.{synthetic_note} Data: MLB Stats API. Comparison odds: Baseball-Referen
 {bref_note_open} {pythag_note}
 </div>
 
-<div class="note" style="margin-top:10px;color:{C['mute']}">
-Generated {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC ·
-rebuilt nightly once every game has finished ·
-not affiliated with or endorsed by the Toronto Blue Jays or MLB
+<div class="foot">
+  <div class="byline">Built by <b>AV</b></div>
+  <div class="footmeta">
+    Generated {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC ·
+    rebuilt automatically once every game has finished ·
+    not affiliated with or endorsed by the Toronto Blue Jays or MLB
+  </div>
 </div>
 
 </div>
-<script>window.__SIM__={SIMJSON};</script>
+{INJ_JS}<script>window.__SIM__={SIMJSON};</script>
 <script>{APPJS}</script>
 </body></html>"""
 
