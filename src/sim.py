@@ -1,109 +1,24 @@
 """
-Blue Jays 2026 playoff-chase Monte Carlo.
+Blue Jays playoff-chase Monte Carlo — runs the model and writes results.json.
 
-Model
------
-Team talent  : Pythagenpat expected win% (exponent = RPG**0.287) blended 80/20 with
-               actual win%, then regressed toward .500 with a 68-game prior. This is
-               the standard rest-of-season talent estimator -- run differential is a
-               better predictor of future wins than W-L is.
-Game model   : log5 matchup probability + home-field advantage (league HFA ~ .535,
-               applied as an odds multiplier).
-Field        : 3 AL division winners + 3 wild cards, ties broken at random (unbiased
-               in expectation; real MLB uses H2H -> intradivision -> last 20).
-Derived      : every conditional (odds given a series result, odds given a rival's
-               finish, per-game leverage) is computed by conditioning on the SAME
-               set of simulated seasons, so all numbers are mutually consistent.
+The model itself lives in model.py; this file is the part that turns a set of simulated
+seasons into the numbers the page shows. It also saves the simulated arrays so analyze.py
+and export_sim.py can read the SAME seasons instead of running their own.
 """
-import json, collections, itertools
+import json
 import numpy as np
 import data as D
-import collections
+import model
+from model import (JAYS, NSIM, TEAMS, AL_TEAMS, CLUSTER, RIVALS, talent, games,
+                   idx, rem, series, jays_game_ix, pythagenpat)
 
-RNG = np.random.default_rng(20260814)
-NSIM = 120_000
-JAYS = "Blue Jays"
-HFA_ODDS = 1.15          # ~.535 home win% at even talent
-REG_PRIOR = 68.0         # games of .500 regression
-PYTH_WEIGHT = 0.80
+st = model.simulate()
+model.save_state(st)
 
-# ---------------------------------------------------------------- talent
-def pythagenpat(rs, ra, g):
-    rpg = (rs + ra) / g
-    x = rpg ** 0.287
-    return rs**x / (rs**x + ra**x)
-
-TEAMS = {**D.AL, **D.NL}
-talent = {}
-for name, (w, l, rs, ra) in TEAMS.items():
-    g = w + l
-    p = pythagenpat(rs, ra, g)
-    blend = PYTH_WEIGHT * p + (1 - PYTH_WEIGHT) * (w / g)
-    talent[name] = (blend * g + 0.500 * REG_PRIOR) / (g + REG_PRIOR)
-
-# ---------------------------------------------------------------- schedule
-AL_TEAMS = list(D.AL)
-games = list(D.GAMES)          # already deduped and validated by fetch_data.py
-games.sort(key=lambda g: (g[0], g[1], g[2]))
-
-# sanity: every AL team must reach 162
-played = {t: sum(D.AL[t][:2]) for t in AL_TEAMS}
-rem = collections.Counter()
-for _, a, h in games:
-    if a in D.AL: rem[a] += 1
-    if h in D.AL: rem[h] += 1
-problems = {t: played[t] + rem[t] for t in AL_TEAMS if played[t] + rem[t] != 162}
-if problems:
-    raise SystemExit(f"schedule does not reconcile to 162: {problems}")
-
-# ---------------------------------------------------------------- simulate
-def log5(a, b):
-    return (a - a * b) / (a + b - 2 * a * b)
-
-idx = {t: i for i, t in enumerate(AL_TEAMS)}
-NG = len(games)
-p_home = np.empty(NG)
-for i, (_, a, h) in enumerate(games):
-    p = log5(talent[h], talent[a])
-    o = p / (1 - p) * HFA_ODDS
-    p_home[i] = o / (1 + o)
-
-draws = RNG.random((NG, NSIM))
-home_wins = draws < p_home[:, None]          # (NG, NSIM) bool
-
-wins = np.zeros((15, NSIM), dtype=np.int16)
-for t in AL_TEAMS:
-    wins[idx[t]] = D.AL[t][0]
-for i, (_, a, h) in enumerate(games):
-    hw = home_wins[i]
-    if h in D.AL: wins[idx[h]] += hw
-    if a in D.AL: wins[idx[a]] += ~hw
-
-# ---------------------------------------------------------------- playoff field
-tie = RNG.random((15, NSIM))
-score = wins.astype(np.float64) + tie * 0.5      # random tiebreak
-
-div_of = {}
-for dname, members in D.DIVISIONS.items():
-    for m in members: div_of[m] = dname
-
-div_winner = np.zeros((15, NSIM), dtype=bool)
-for dname, members in D.DIVISIONS.items():
-    rows = [idx[m] for m in members]
-    sub = score[rows]
-    best = np.argmax(sub, axis=0)
-    div_winner[np.array(rows)[best], np.arange(NSIM)] = True
-
-wc_score = np.where(div_winner, -1e9, score)
-order = np.argsort(-wc_score, axis=0)
-wc = np.zeros((15, NSIM), dtype=bool)
-for k in range(3):
-    wc[order[k], np.arange(NSIM)] = True
-
-playoff = div_winner | wc
+wins, score, wc_score = st.wins, st.score, st.wc_score
+div_winner, wc, playoff = st.div_winner, st.wc, st.playoff
+jays_in, jays_wins, jays_won = st.jays_in, st.jays_wins, st.jays_won
 J = idx[JAYS]
-jays_in = playoff[J]
-jays_wins = wins[J]
 
 # ---------------------------------------------------------------- outputs
 out = {}
@@ -113,6 +28,7 @@ out["record"] = {"w": D.AL[JAYS][0], "l": D.AL[JAYS][1],
                  "rs": D.AL[JAYS][2], "ra": D.AL[JAYS][3]}
 out["games_left"] = int(rem[JAYS])
 out["talent"] = {t: round(talent[t], 4) for t in AL_TEAMS}
+out["cluster"] = CLUSTER
 out["pythag_record"] = {}
 for t in AL_TEAMS:
     w, l, rs, ra = D.AL[t]
@@ -142,8 +58,12 @@ for t in AL_TEAMS:
     }
 
 # win-total -> P(in) curve  (the "how many wins do we need" chart)
+# the window follows the simulated distribution rather than a fixed 75-97, which
+# silently truncated the curve for a club on pace for 98+
+lo_w = int(np.percentile(jays_wins, 0.5))
+hi_w = int(np.percentile(jays_wins, 99.5))
 curve = {}
-for w in range(75, 98):
+for w in range(lo_w, hi_w + 1):
     m = jays_wins == w
     if m.sum() >= 150:
         curve[w] = [float(jays_in[m].mean()), int(m.sum())]
@@ -154,28 +74,7 @@ out["wins_90"] = min((w for w, (p, n) in curve.items() if p >= .90), default=Non
 out["wins_10"] = min((w for w, (p, n) in curve.items() if p >= .10), default=None)
 
 # ---------------------------------------------------------------- series analysis
-jays_game_ix = [i for i, (_, a, h) in enumerate(games) if JAYS in (a, h)]
-jays_won = np.empty((len(jays_game_ix), NSIM), dtype=bool)
-for k, i in enumerate(jays_game_ix):
-    _, a, h = games[i]
-    jays_won[k] = home_wins[i] if h == JAYS else ~home_wins[i]
-
-# group consecutive games into series by opponent
-series = []
-cur = None
-for k, i in enumerate(jays_game_ix):
-    date, a, h = games[i]
-    opp = a if h == JAYS else h
-    home = (h == JAYS)
-    if cur and cur["opp"] == opp and cur["home"] == home:
-        cur["ix"].append(k); cur["end"] = date
-    else:
-        if cur: series.append(cur)
-        cur = {"opp": opp, "home": home, "ix": [k], "start": date, "end": date}
-series.append(cur)
-
 out["series"] = []
-base = jays_in.mean()
 for s in series:
     swins = jays_won[s["ix"]].sum(axis=0)
     n = len(s["ix"])
@@ -194,9 +93,11 @@ for s in series:
         "exp_wins": float(swins.mean()),
         "cond": conds,
         "swing": (sweep_hi - sweep_lo) if (sweep_hi is not None and sweep_lo is not None) else None,
-        "is_rival": s["opp"] in ("Rangers", "Tigers", "Guardians", "Twins", "Astros",
-                                 "Mariners", "Orioles", "Red Sox", "Yankees"),
+        "is_rival": s["opp"] in RIVALS + ["Orioles"],
     })
+
+# how many of the Jays' remaining games are against the wild-card cluster
+out["cluster_games"] = int(sum(len(s["ix"]) for s in series if s["opp"] in CLUSTER))
 
 # per-game leverage: P(in | win) - P(in | loss)
 lev = []
@@ -212,7 +113,7 @@ out["leverage"] = lev
 
 # rival-dependency: how much Jays odds move on a rival's finish
 dep = {}
-for t in ["Rangers", "Tigers", "Guardians", "Twins", "Astros", "Mariners", "Red Sox", "Yankees"]:
+for t in RIVALS:
     tw = wins[idx[t]]
     lo, hi = np.percentile(tw, 25), np.percentile(tw, 75)
     a = jays_in[tw <= lo].mean()
@@ -221,12 +122,11 @@ for t in ["Rangers", "Tigers", "Guardians", "Twins", "Astros", "Mariners", "Red 
               "swing": float(a - b), "cold_w": float(lo), "hot_w": float(hi)}
 out["dependency"] = dep
 
-# how many of the 5-team cluster do the Jays need to pass?
-cluster = ["Rangers", "Tigers", "Guardians", "Twins"]
+# how many of the cluster do the Jays need to pass?
 passed = np.zeros(NSIM, dtype=np.int8)
-for t in cluster:
+for t in CLUSTER:
     passed += (score[J] > score[idx[t]])
-out["pass_dist"] = {int(k): float((passed == k).mean()) for k in range(len(cluster) + 1)}
+out["pass_dist"] = {int(k): float((passed == k).mean()) for k in range(len(CLUSTER) + 1)}
 out["pass_given_in"] = float(passed[jays_in].mean())
 
 # elimination / magic number vs the current WC3 holder (best non-playoff cutline)
@@ -236,18 +136,26 @@ out["cut_wins"] = {
     "p50": float(np.percentile(np.floor(cut), 50)),
     "p90": float(np.percentile(np.floor(cut), 90)),
 }
-need = np.ceil(cut) - D.AL[JAYS][0]
-out["elimination_number"] = int(rem[JAYS] + 1 - (np.ceil(np.median(cut)) - D.AL[JAYS][0]))
+# Elimination number against the median cut line: the number of further Jays losses
+# that leaves them short of it. Derived from cut_wins.p50 — the same figure the page
+# quotes as "the cut line" — so the two cannot disagree by a win, which they did when
+# this used ceil(median(cut)) on the raw tie-broken scores.
+_target = int(np.ceil(out["cut_wins"]["p50"]))
+_need = max(0, _target - D.AL[JAYS][0])
+out["cut_target_w"] = _target
+out["elimination_number"] = max(0, min(int(rem[JAYS]) + 1, int(rem[JAYS]) + 1 - _need))
 
-# streak requirement: P(in | Jays go X-Y over next 12 games)
-next12 = jays_won[:12].sum(axis=0)
-out["next12"] = {int(w): [float(jays_in[next12 == w].mean()), float((next12 == w).mean())]
-                 for w in range(13) if (next12 == w).sum() >= 100}
+# streak requirement: P(in | Jays go X-Y over the next stretch)
+nnext = min(12, len(jays_game_ix))
+nextN = jays_won[:nnext].sum(axis=0)
+out["next_n"] = nnext
+out["next12"] = {int(w): [float(jays_in[nextN == w].mean()), float((nextN == w).mean())]
+                 for w in range(nnext + 1) if (nextN == w).sum() >= 100}
 
 with open("results.json", "w") as f:
     json.dump(out, f, indent=1)
 
-print(f"games modelled: {NG}   sims: {NSIM}")
+print(f"games modelled: {len(games)}   sims: {NSIM}")
 print(f"Jays talent {talent[JAYS]:.4f}  proj {out['proj_wins']['mean']:.1f} W")
 print(f"PLAYOFF ODDS: {out['odds']['playoff']*100:.1f}%  (WC {out['odds']['wildcard']*100:.1f}%)")
 print(f"wins needed: 10% @ {out['wins_10']}  50% @ {out['wins_50']}  90% @ {out['wins_90']}")

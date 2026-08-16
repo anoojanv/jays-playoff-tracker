@@ -1,0 +1,49 @@
+name: Tests
+
+# Runs on code changes only, never on the nightly schedule, so it costs nothing against
+# the polling budget. Both self-tests are fully offline — they read tests/fixture_data.json
+# and stub the network — so this needs no secrets and cannot be broken by MLB being down.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["README.md", "LICENSE"]
+  pull_request:
+    paths-ignore: ["README.md", "LICENSE"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  selftests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: The fixture must still reconcile to 162
+        run: |
+          python tests/make_fixture.py
+          git diff --exit-code tests/fixture_data.json \
+            || { echo "::error::tests/fixture_data.json is stale — re-run python tests/make_fixture.py and commit it."; exit 1; }
+
+      - name: MLB fetch layer, network mocked
+        run: python src/selftest_fetch.py
+
+      - name: Polling decision, every path
+        run: python src/selftest_check.py
+
+      - name: Full pipeline against the fixture
+        run: |
+          mkdir -p build
+          cp tests/fixture_data.json build/data.json
+          python src/build.py --no-fetch

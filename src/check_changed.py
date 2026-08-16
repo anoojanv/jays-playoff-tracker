@@ -41,7 +41,6 @@ def live_fingerprint():
 
 
 def main():
-    out = []
     if os.environ.get("FORCE_BUILD", "").lower() in ("1", "true", "yes"):
         print("FORCE_BUILD set — rebuilding regardless")
         return emit(True)

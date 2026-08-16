@@ -1,8 +1,11 @@
 """Export the model (talent, schedule, series structure) for the in-browser simulator."""
 import json
 import data as D
+import model
+from model import JAYS, AL_TEAMS, games, series, jays_game_ix, p_home
 
-exec(open("sim.py").read().split('with open("results.json"')[0])
+st = model.load_state()
+jays_in = st.jays_in
 
 AL_IDX = {t: i for i, t in enumerate(AL_TEAMS)}
 

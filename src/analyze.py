@@ -1,9 +1,18 @@
 """Path analysis: what a qualifying season actually looks like, series by series."""
-import json, collections
+import json, collections, math
 import numpy as np
 import data as D
+import model
+from model import JAYS, TEAMS, talent, series, rem
 
-exec(open("sim.py").read().split('with open("results.json"')[0])
+st = model.load_state()
+jays_won, jays_in, jays_wins = st.jays_won, st.jays_in, st.jays_wins
+
+# the win total a qualifying season is aimed at — the simulated median cut line, not a
+# number frozen into the source on the day this was written
+R = json.load(open("results.json"))
+CUT = R["cut_wins"]["p50"]
+TARGET_W = int(math.ceil(CUT))
 
 path = {}
 # conditional on making the playoffs, how did each series go?
@@ -29,6 +38,12 @@ for s in series:
                  for w in range(n + 1) if (sw == w).sum() >= 80},
     })
 
+# rest-of-season record needed to reach the median cut line, clamped to the games that
+# are actually left (a club already past the cut line needs 0, not a negative number)
+ros_w = min(int(rem[JAYS]), max(0, TARGET_W - D.AL[JAYS][0]))
+ros_l = int(rem[JAYS]) - ros_w
+ros_pct = ros_w / rem[JAYS] if rem[JAYS] else 0.0
+
 print(f"{'series':<28} {'opp':<10} {'exp':>5} {'need':>5} {'tgt':>4} {'win-swing':>10}")
 tot_need = 0
 for r in rows:
@@ -38,7 +53,8 @@ for r in rows:
           f"{r['exp']:5.2f} {r['need']:5.2f} {r['target']:4d} {r['swing_series']*100:9.1f}")
 print(f"\nsum of E[wins|qualify] across series = {tot_need:.1f} of {sum(r['n'] for r in rows)}")
 print(f"E[total wins | qualify] = {jays_wins[jays_in].mean():.1f}")
-print(f"rest-of-season record needed for median cutline (83W): 24-15 (.615)")
+print(f"rest-of-season record needed for median cutline ({TARGET_W}W): "
+      f"{ros_w}-{ros_l} ({ros_pct:.3f})")
 
 # series records in qualifying seasons
 sweeps = {}
@@ -61,8 +77,10 @@ out = {
     "series_won_typical": float(won_series_ct.mean()),
     "n_series": len(series),
     "e_wins_if_qualify": float(jays_wins[jays_in].mean()),
-    "ros_needed_w": int(round(83 - D.AL["Blue Jays"][0])),
-    "ros_needed_l": int(rem["Blue Jays"] - round(83 - D.AL["Blue Jays"][0])),
+    "cut_target_w": TARGET_W,
+    "ros_needed_w": ros_w,
+    "ros_needed_l": ros_l,
+    "ros_needed_pct": ros_pct,
     "series_won_dist_qualify": {int(k): float(v / jays_in.sum()) for k, v in sorted(dist_in.items())},
 }
 json.dump(out, open("path.json", "w"), indent=1)
