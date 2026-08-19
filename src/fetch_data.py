@@ -216,7 +216,10 @@ def injuries(team_id=141):
     for e in roster.get("roster", []):
         st = (e.get("status") or {})
         code = st.get("code", "")
-        if not code.startswith("D"):            # A = active, D* = an injured list
+        # Match the injured-list codes exactly. This used to accept any code starting
+        # with "D", which also swept in DES (designated for assignment) and anything
+        # else MLB spells with a leading D — the first live run reported 44 players.
+        if code not in IL_DAYS:
             continue
         hurt.append({
             "name": (e.get("person") or {}).get("fullName", "?"),

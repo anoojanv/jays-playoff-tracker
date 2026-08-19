@@ -9,13 +9,24 @@ both are invisible in the final number and easy to break silently.
 
 Run:  python tests/test_momentum.py
 """
-import importlib.util, os, sys
+import os, shutil, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SRC = os.path.join(ROOT, "src")
+
+# model.py imports data.py, which reads build/data.json at import time. Stage the
+# committed fixture if that file is absent, so this test stands on its own rather than
+# depending on some earlier step having built the tree — which is exactly how it passed
+# locally and would have failed in CI, where it runs before anything creates build/.
+_build = os.path.join(ROOT, "build")
+_data = os.path.join(_build, "data.json")
+if not os.path.exists(_data):
+    os.makedirs(_build, exist_ok=True)
+    shutil.copyfile(os.path.join(HERE, "fixture_data.json"), _data)
+
 sys.path.insert(0, SRC)
-os.chdir(SRC)                    # model.py loads build/data.json relative to src/
+os.chdir(SRC)                    # model.py resolves build/data.json relative to src/
 
 import model                     # noqa: E402
 
