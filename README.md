@@ -111,6 +111,21 @@ The build fails — and publishes nothing — if the schedule doesn't reconcile,
 comes out suspiciously small, if it somehow references an external URL, or if the
 interactive markup is missing.
 
+## Momentum
+
+The badge beside the record is recent form measured against the model's own expectation,
+not a last-ten record. Every completed game is scored against the probability the model
+gave it — the same log5 matchup plus home-field edge that simulates the rest of the
+season — and the difference is weighted by recency, halving about every seven games.
+
+So **0 means playing exactly to their own level, which is not .500**: splitting ten games
+with the Angels reads as cold, while splitting ten with the Rays reads as steady. The
+badge also prints the raw last-ten record and what the model expected from it, so the
+rating can always be checked against something concrete.
+
+It comes from a separate, wider, best-effort request for the Blue Jays' completed games.
+If that request fails the badge simply disappears; it cannot fail a build.
+
 ## The model
 
 Team strength is Pythagenpat expected win% (exponent = runs-per-game<sup>0.287</sup>)
@@ -140,6 +155,7 @@ games-played to 162 minus what it has left, so it reconciles by construction.
 ```bash
 python src/selftest_fetch.py    # the MLB fetch, with the network mocked
 python src/selftest_check.py    # the polling decision, all six paths
+python tests/test_momentum.py   # the momentum rating's semantics
 python tests/test_reconcile.py  # the 162-game check, over- and under-count
 python tests/test_endgame.py    # the page still builds once the race is decided
 python tests/make_fixture.py    # rebuild the fixture (must be byte-identical; CI checks)

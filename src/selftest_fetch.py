@@ -92,11 +92,31 @@ TRANSACTIONS = {"transactions": [
 ]}
 
 
+# A completed-games payload for recent_form(). Covers the three shapes that matter:
+# isWinner present, only a score present, and a game that is not final at all.
+SCHEDULE_DONE = {"dates": [
+    {"date": "2026-08-12", "games": [{
+        "status": {"codedGameState": "F"},
+        "teams": {"away": {"team": {"name": "Boston Red Sox"}, "isWinner": False, "score": 2},
+                  "home": {"team": {"name": "Toronto Blue Jays"}, "isWinner": True, "score": 5}}}]},
+    {"date": "2026-08-13", "games": [{
+        "status": {"codedGameState": "F"},          # no isWinner, score only
+        "teams": {"away": {"team": {"name": "Toronto Blue Jays"}, "score": 1},
+                  "home": {"team": {"name": "New York Yankees"}, "score": 4}}}]},
+    {"date": "2026-08-15", "games": [{
+        "status": {"codedGameState": "S"},          # still to be played: must be ignored
+        "teams": {"away": {"team": {"name": "Toronto Blue Jays"}},
+                  "home": {"team": {"name": "Tampa Bay Rays"}}}}]},
+]}
+
+
 def fake_try_get(url, timeout=20):
     if "/roster" in url:
         return ROSTER
     if "/transactions" in url:
         return TRANSACTIONS
+    if "/schedule" in url:
+        return SCHEDULE_DONE
     raise AssertionError(f"unexpected optional URL: {url}")
 
 
@@ -158,6 +178,14 @@ def main():
                      f"{inj['Dalton Reyes']['eligible']!r}")
     elif inj["Nate Kowalski"]["eligible"] is not None:
         fails.append("a player with no placement transaction must have no return date")
+
+    rec = got.get("RECENT", [])
+    if [r["date"] for r in rec] != ["2026-08-12", "2026-08-13"]:
+        fails.append(f"recent form should hold only the two finished games: {rec}")
+    elif [r["won"] for r in rec] != [True, False]:
+        fails.append(f"win/loss wrong — isWinner then score fallback: {rec}")
+    elif [r["home"] for r in rec] != [True, False]:
+        fails.append(f"home/away wrong: {rec}")
 
     print("\n" + "=" * 62)
     if fails:

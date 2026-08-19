@@ -45,6 +45,9 @@ jobs:
       - name: Polling decision, every path
         run: python src/selftest_check.py
 
+      - name: Momentum rating semantics
+        run: python tests/test_momentum.py
+
       - name: The page still builds once the race is decided
         run: python tests/test_endgame.py
 

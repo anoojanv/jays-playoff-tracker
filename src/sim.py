@@ -10,7 +10,7 @@ import numpy as np
 import data as D
 import model
 from model import (JAYS, NSIM, TEAMS, AL_TEAMS, CLUSTER, RIVALS, talent, games,
-                   idx, rem, series, jays_game_ix, pythagenpat)
+                   idx, rem, series, jays_game_ix, pythagenpat, momentum)
 
 st = model.simulate()
 model.save_state(st)
@@ -29,6 +29,8 @@ out["record"] = {"w": D.AL[JAYS][0], "l": D.AL[JAYS][1],
 out["games_left"] = int(rem[JAYS])
 out["talent"] = {t: round(talent[t], 4) for t in AL_TEAMS}
 out["cluster"] = CLUSTER
+# recent form against what the model expected; None when there is nothing to measure
+out["momentum"] = momentum()
 out["pythag_record"] = {}
 for t in AL_TEAMS:
     w, l, rs, ra = D.AL[t]
@@ -161,6 +163,10 @@ print(f"Jays talent {talent[JAYS]:.4f}  proj {out['proj_wins']['mean']:.1f} W")
 print(f"PLAYOFF ODDS: {out['odds']['playoff']*100:.1f}%  (WC {out['odds']['wildcard']*100:.1f}%)")
 print(f"wins needed: 10% @ {out['wins_10']}  50% @ {out['wins_50']}  90% @ {out['wins_90']}")
 print(f"cutline median: {out['cut_wins']['p50']:.0f} wins")
+if out["momentum"]:
+    _m = out["momentum"]
+    print(f"momentum: {_m['index']:+d} ({_m['label']}) — last 10 "
+          f"{_m['l10_w']}-{_m['l10_l']} vs {_m['l10_expected_w']} expected")
 print("\nrival odds:")
 for t, v in sorted(out["rivals"].items(), key=lambda x: -x[1]["playoff"]):
     print(f"  {t:<10} {v['w']}-{v['l']} rd{v['rd']:+4d}  proj {v['proj_w']:.1f}  {v['playoff']*100:5.1f}%")
