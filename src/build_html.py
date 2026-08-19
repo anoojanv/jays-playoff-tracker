@@ -502,6 +502,23 @@ _leaders_txt = ", ".join(TEAM_ABBR.get(t, t)
                          for t in sorted(div_leaders, key=_winpct, reverse=True))
 
 
+MOM = R.get("momentum")
+if MOM:
+    _arrow = "&#9650;" if MOM["index"] > 0 else ("&#9660;" if MOM["index"] < 0 else "&#9644;")
+    _tip = (f"Recency-weighted form over the last {MOM['window']} games, scored against "
+            f"what the model expected. 0 means playing exactly to their own level. "
+            f"Half-life {MOM['half_life']} games.")
+    momentum_badge = (
+        f'<div class="mom mom-{MOM["tone"]}" title="{html.escape(_tip)}">'
+        f'<div class="momtop"><span class="momarr">{_arrow}</span>'
+        f'<span class="momidx">{MOM["index"]:+d}</span></div>'
+        f'<div class="momlab">{html.escape(MOM["label"])}</div>'
+        f'<div class="momsub">{MOM["l10_w"]}&ndash;{MOM["l10_l"]} last 10 '
+        f'&middot; {MOM["l10_expected_w"]} expected</div></div>')
+else:
+    momentum_badge = ""
+
+
 def _ordinal(n):
     suf = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
     return f"{n}{suf}"
@@ -661,7 +678,29 @@ h2{{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:{C['brand
 .hdr h1 span{{color:#fff;background:{C['red']};padding:0 8px;border-radius:5px;
  margin:0 2px}}
 .hdr .stamp{{font-size:12px;color:rgba(255,255,255,.74);margin-top:6px}}
-.hdr .rec{{margin-left:auto;text-align:right;color:#fff}}
+.hdrright{{margin-left:auto;display:flex;align-items:center;gap:18px}}
+.hdr .rec{{text-align:right;color:#fff}}
+
+/* Momentum badge. Green for above expectation, amber for below — deliberately not
+   red: on this page red means "your input", and this is a readout. */
+.mom{{flex:none;min-width:118px;padding:9px 13px;border-radius:12px;text-align:right;
+ background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);
+ backdrop-filter:blur(3px)}}
+.momtop{{display:flex;align-items:baseline;justify-content:flex-end;gap:5px}}
+.momarr{{font-size:11px;line-height:1}}
+.momidx{{font-size:23px;font-weight:800;letter-spacing:-.02em;line-height:1;
+ font-variant-numeric:tabular-nums}}
+.momlab{{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+ margin-top:3px}}
+.momsub{{font-size:9.5px;color:rgba(255,255,255,.66);margin-top:3px;
+ font-variant-numeric:tabular-nums;white-space:nowrap}}
+.mom-hot .momidx,.mom-hot .momlab,.mom-hot .momarr{{color:#5BE49B}}
+.mom-warm .momidx,.mom-warm .momlab,.mom-warm .momarr{{color:#9BEBC0}}
+.mom-flat .momidx,.mom-flat .momlab,.mom-flat .momarr{{color:rgba(255,255,255,.86)}}
+.mom-cool .momidx,.mom-cool .momlab,.mom-cool .momarr{{color:#FFCE85}}
+.mom-icy .momidx,.mom-icy .momlab,.mom-icy .momarr{{color:#FFAE6B}}
+@media(max-width:700px){{.hdrright{{gap:12px}} .mom{{min-width:0;padding:7px 10px}}
+ .momsub{{display:none}}}}
 .hdr .rec b{{font-size:34px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;display:block;line-height:1}}
 .hdr .rec div{{font-size:11px;color:rgba(255,255,255,.72);letter-spacing:.08em;
  text-transform:uppercase}}
@@ -1004,9 +1043,12 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
     <h1>TORONTO <span>BLUE JAYS</span> — PLAYOFF TRACKER</h1>
     <div class="stamp">Standings through {STAMP} · {R['nsim']:,} simulated seasons</div>
   </div>
-  <div class="rec">
-    <b>{W}–{L}</b>
-    <div>{div_pos} · {GL} games left</div>
+  <div class="hdrright">
+    <div class="rec">
+      <b>{W}–{L}</b>
+      <div>{div_pos} · {GL} games left</div>
+    </div>
+    {momentum_badge}
   </div>
 </div>
 

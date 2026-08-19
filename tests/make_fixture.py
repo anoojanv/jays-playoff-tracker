@@ -146,6 +146,19 @@ def main():
         "GAMES": games,
         "BREF": None,                               # never depend on a live scrape
         "SYNTHETIC": [],
+        # 14 completed games ending the day before AS_OF, alternating opponents, with a
+        # deliberate late hot streak so the momentum rating is non-zero and testable
+        "RECENT": [
+            {"date": d, "opp": o, "home": h, "won": w} for d, o, h, w in [
+                ("2026-08-01", "Yankees", True, False), ("2026-08-02", "Yankees", True, False),
+                ("2026-08-03", "Yankees", True, True), ("2026-08-04", "Royals", False, False),
+                ("2026-08-05", "Royals", False, True), ("2026-08-06", "Royals", False, False),
+                ("2026-08-08", "Rays", False, False), ("2026-08-09", "Rays", False, True),
+                ("2026-08-10", "Athletics", True, True), ("2026-08-11", "Athletics", True, True),
+                ("2026-08-12", "Angels", True, True), ("2026-08-13", "Angels", True, True),
+                ("2026-08-14", "Red Sox", False, True), ("2026-08-14", "Red Sox", False, True),
+            ]
+        ],
         # a spread of injury cases so the table's three return states all render:
         # a derived IL-minimum date, a hand-entered reported timeline, and an unknown
         "INJURIES": [

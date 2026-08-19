@@ -357,6 +357,92 @@
  ],
  "BREF": null,
  "SYNTHETIC": [],
+ "RECENT": [
+  {
+   "date": "2026-08-01",
+   "opp": "Yankees",
+   "home": true,
+   "won": false
+  },
+  {
+   "date": "2026-08-02",
+   "opp": "Yankees",
+   "home": true,
+   "won": false
+  },
+  {
+   "date": "2026-08-03",
+   "opp": "Yankees",
+   "home": true,
+   "won": true
+  },
+  {
+   "date": "2026-08-04",
+   "opp": "Royals",
+   "home": false,
+   "won": false
+  },
+  {
+   "date": "2026-08-05",
+   "opp": "Royals",
+   "home": false,
+   "won": true
+  },
+  {
+   "date": "2026-08-06",
+   "opp": "Royals",
+   "home": false,
+   "won": false
+  },
+  {
+   "date": "2026-08-08",
+   "opp": "Rays",
+   "home": false,
+   "won": false
+  },
+  {
+   "date": "2026-08-09",
+   "opp": "Rays",
+   "home": false,
+   "won": true
+  },
+  {
+   "date": "2026-08-10",
+   "opp": "Athletics",
+   "home": true,
+   "won": true
+  },
+  {
+   "date": "2026-08-11",
+   "opp": "Athletics",
+   "home": true,
+   "won": true
+  },
+  {
+   "date": "2026-08-12",
+   "opp": "Angels",
+   "home": true,
+   "won": true
+  },
+  {
+   "date": "2026-08-13",
+   "opp": "Angels",
+   "home": true,
+   "won": true
+  },
+  {
+   "date": "2026-08-14",
+   "opp": "Red Sox",
+   "home": false,
+   "won": true
+  },
+  {
+   "date": "2026-08-14",
+   "opp": "Red Sox",
+   "home": false,
+   "won": true
+  }
+ ],
  "INJURIES": [
   {
    "name": "Dalton Reyes",

@@ -113,6 +113,60 @@ if _cur:
     series.append(_cur)
 
 
+def p_win(opp, at_home):
+    """The model's own probability that Toronto wins that game — log5 plus home edge."""
+    p = log5(talent[JAYS], talent[opp])
+    if at_home:
+        o = p / (1 - p) * HFA_ODDS
+        return o / (1 + o)
+    o = (1 - p) / p * HFA_ODDS              # the opponent gets the edge on the road
+    return 1 / (1 + o)
+
+
+def momentum(decay=0.90, window=25):
+    """How the Blue Jays are playing relative to how they should be playing.
+
+    Raw "last 10" is a poor form measure: 6-4 against the Rays and Yankees is a much
+    better ten games than 6-4 against the Athletics and Angels. Every game here is
+    scored against what the model itself expected, using the same matchup probability
+    that simulates the rest of the season, so the rating is actual minus expected.
+    Zero means playing exactly to their own level, which is not the same as .500.
+
+    Recent games count for more: weights decay by `decay` per game back, a half-life of
+    about seven games, so a hot week shows through without a good April propping it up.
+
+    Returns None when there is nothing to measure, and the page omits the badge.
+    """
+    recent = [g for g in D.RECENT if g.get("opp") in talent]
+    if not recent:
+        return None
+
+    num = den = 0.0
+    for i, g in enumerate(reversed(recent[-window:])):    # i = games ago, 0 = latest
+        w = decay ** i
+        num += w * ((1.0 if g["won"] else 0.0) - p_win(g["opp"], g["home"]))
+        den += w
+    idx = int(round((num / den if den else 0.0) * 100))
+
+    last10 = recent[-10:]
+    w10 = sum(1 for g in last10 if g["won"])
+    exp10 = sum(p_win(g["opp"], g["home"]) for g in last10)
+
+    if idx >= 15:   label, tone = "Red hot", "hot"
+    elif idx >= 6:  label, tone = "Hot", "warm"
+    elif idx > -6:  label, tone = "Steady", "flat"
+    elif idx > -15: label, tone = "Cold", "cool"
+    else:           label, tone = "Ice cold", "icy"
+
+    return {
+        "index": idx, "label": label, "tone": tone,
+        "games": len(recent), "window": min(window, len(recent)),
+        "l10_w": w10, "l10_l": len(last10) - w10,
+        "l10_expected_w": round(exp10, 1),
+        "half_life": round(-0.6931 / __import__("math").log(decay), 1),
+    }
+
+
 class State:
     """The simulated seasons. Attribute names match the originals in sim.py."""
 

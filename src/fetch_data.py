@@ -257,6 +257,52 @@ def injuries(team_id=141):
     return hurt
 
 
+def recent_form(team_id, today, days=45, limit=25):
+    """The club's last completed games, most recent last.
+
+    schedule() already sees finished games but keeps only their dates, and it looks two
+    days back, which is far too narrow for form. This is a separate, wider, best-effort
+    request for one club, so the critical path — the 162-game reconciliation built from
+    every club's remaining schedule — is untouched by it.
+    """
+    me = AL_IDS.get(team_id)
+    start = (today - datetime.timedelta(days=days)).isoformat()
+    data = _try_get(f"https://statsapi.mlb.com/api/v1/schedule?sportId=1"
+                    f"&teamId={team_id}&startDate={start}&endDate={today.isoformat()}")
+    if not data:
+        return []
+
+    out = []
+    for d in data.get("dates", []):
+        for g in d.get("games", []):
+            if g.get("status", {}).get("codedGameState") != "F":
+                continue
+            try:
+                away = canon(g["teams"]["away"]["team"]["name"])
+                home = canon(g["teams"]["home"]["team"]["name"])
+            except SystemExit:          # an unknown club here must not fail the build
+                continue
+            if me not in (away, home):
+                continue
+            at_home = home == me
+            side = "home" if at_home else "away"
+            won = g["teams"][side].get("isWinner")
+            if won is None:             # older payloads carry only the score
+                sa, sh = g["teams"]["away"].get("score"), g["teams"]["home"].get("score")
+                if sa is None or sh is None:
+                    continue
+                won = (sh > sa) if at_home else (sa > sh)
+            out.append({"date": d["date"], "opp": away if at_home else home,
+                        "home": at_home, "won": bool(won)})
+
+    out.sort(key=lambda x: x["date"])
+    out = out[-limit:]
+    if out:
+        w = sum(1 for x in out if x["won"])
+        print(f"  recent form: {len(out)} completed games, {w}-{len(out) - w}")
+    return out
+
+
 def bref_odds():
     """Best-effort comparison number. Never fatal — the page hides the pill if absent."""
     try:
@@ -352,6 +398,7 @@ def main():
         "NL": {k: [v["w"], v["l"], v["rs"], v["ra"]] for k, v in nl.items()},
         "DIVISIONS": DIVISIONS, "GAMES": games, "BREF": bref_odds(),
         "INJURIES": injuries(),
+        "RECENT": recent_form(141, today),
         "SYNTHETIC": [list(g) for g in SYNTHETIC_GAMES],
         "REMOVED": [list(g) for g in ignored + dropped],
         "fingerprint": fingerprint(al, nl),
