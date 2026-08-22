@@ -110,6 +110,23 @@ def ramp_for(v, lo, hi):
 # challengers — so the table silently went wrong the moment a division changed hands:
 # a fallen leader would have been missing from the race entirely, and the new leader
 # would still have been listed as a wild-card contender.
+# Remaining-schedule difficulty, as what a league-average club would win against it.
+# Shaded across the AL's full range, so the chip reads relative to the league rather
+# than to whichever nine clubs happen to be in the table.
+SOS = R.get("sos", {}) or {}
+_sv = [v for v in SOS.values() if v is not None]
+SOS_LO, SOS_HI = (min(_sv), max(_sv)) if _sv else (0.0, 1.0)
+
+
+def sos_shade(v):
+    """Dark = harder. Reuses the validated leverage ramp rather than new colours."""
+    if v is None or SOS_HI <= SOS_LO:
+        return C["ramp"][::-1][2], C["navy"]
+    t = (SOS_HI - v) / (SOS_HI - SOS_LO)          # invert: low win% = hard = dark
+    i = min(4, int(t * 5))
+    return C["ramp"][::-1][i], ("#fff" if i >= 2 else C["navy"])
+
+
 def _winpct(t):
     v = R["rivals"][t]
     return v["w"] / (v["w"] + v["l"])
@@ -128,17 +145,26 @@ for t in race_order:
     tp = v["w"] / (v["w"] + v["l"])
     gb = ((v["w"] - W) + (L - v["l"])) / 2
     wc_rows.append(dict(team=t, w=v["w"], l=v["l"], pct=tp, rd=v["rd"],
-                        gl=v["games_left"], proj=v["proj_w"], odds=v["playoff"], gb=gb))
+                        gl=v["games_left"], proj=v["proj_w"], odds=v["playoff"], gb=gb,
+                        sos=SOS.get(t)))
 wc_rows.sort(key=lambda r: -r["pct"])
 # the cut line sits after the 3rd wild card (top 3 non-division-leaders)
 cut_after = 3
+
+def sos_cell(v):
+    if v is None:
+        return '<span class="sosna">&mdash;</span>'
+    bg, fg = sos_shade(v)
+    return (f'<span class="sos" style="background:{bg};color:{fg}">'
+            f'{("%.3f" % v).lstrip("0")}</span>')
+
 
 AL_ORDER = json.load(open("simdata.json"))["teams"]
 wc_html = ""
 for i, r in enumerate(wc_rows):
     ti = AL_ORDER.index(r["team"])
     if i == cut_after:
-        wc_html += ('<tr class="cut"><td colspan="6" class="cutlab">'
+        wc_html += ('<tr class="cut"><td colspan="7" class="cutlab">'
                     '— wild card cut line —</td></tr>')
     g = r["gb"] + 0.0
     gbtxt = "—" if r["team"] == JAYS else ("0.0" if abs(g) < 0.05 else f"{g:+.1f}")
@@ -149,6 +175,7 @@ for i, r in enumerate(wc_rows):
         f'<td style="text-align:right">{r["w"]}–{r["l"]}</td>'
         f'<td style="text-align:right" class="gb">{gbtxt}</td>'
         f'<td style="text-align:right" class="{rdcls}">{r["rd"]:+d}</td>'
+        f'<td style="text-align:right" class="hide-s">{sos_cell(r["sos"])}</td>'
         f'<td style="text-align:right" class="hide-s">{r["proj"]:.0f}</td>'
         f'<td><div class="oddsbar"><div class="obt"><div class="obf" '
         f'data-oddsbar="{ti}" style="width:{r["odds"]*100:.0f}%"></div></div>'
@@ -524,6 +551,19 @@ def _ordinal(n):
     return f"{n}{suf}"
 
 
+# where Toronto's remaining road sits among the clubs actually in the race
+_race_sos = [(r["team"], r["sos"]) for r in wc_rows if r["sos"] is not None]
+if len(_race_sos) >= 2 and SOS.get(JAYS) is not None:
+    _ranked = sorted(_race_sos, key=lambda kv: kv[1])          # hardest first
+    _rank = [t for t, _ in _ranked].index(JAYS) + 1
+    _hardest, _easiest = _ranked[0][0], _ranked[-1][0]
+    sos_note = (f"Of the {len(_ranked)} clubs listed, Toronto has the "
+                f"{_ordinal(_rank)}-hardest run-in; {html.escape(_hardest)} face the "
+                f"toughest and {html.escape(_easiest)} the easiest.")
+else:
+    sos_note = ""
+
+
 # where Toronto actually sits in its own division — the header said "4th AL East" flat
 _own_div = next(d for d, members in _D.DIVISIONS.items() if JAYS in members)
 _div_rank = sorted(_D.DIVISIONS[_own_div], key=_winpct, reverse=True).index(JAYS) + 1
@@ -870,6 +910,9 @@ html{{scroll-behavior:smooth}}
 .clkey{{width:11px;height:11px;border-radius:3px;
  box-shadow:inset 0 0 0 2.5px {C['red']};background:{C['card2']}}}
 @media(max-width:560px){{.cmon{{flex:1 1 100%}} .snav a{{font-size:11px;padding:5px 10px}}}}
+.sos{{display:inline-block;min-width:42px;padding:2px 6px;border-radius:5px;
+ font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;text-align:center}}
+.sosna{{color:{C['axis']}}}
 .facts{{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:13px}}
 .fact{{background:{C['card2']};border-radius:8px;padding:10px 11px}}
 .factv{{font-size:19px;font-weight:800;color:{C['navy']};line-height:1.1;
@@ -1130,11 +1173,17 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
     <div class="tscroll"><table>
       <thead><tr><th>Team</th><th style="text-align:right">W–L</th>
         <th style="text-align:right">GB<br>of TOR</th><th style="text-align:right">Run<br>diff</th>
+        <th style="text-align:right" class="hide-s">Rem<br>SOS</th>
         <th style="text-align:right" class="hide-s">Proj</th><th>Playoff odds</th></tr></thead>
       <tbody>{wc_html}</tbody></table></div>
     <div class="note">Division leaders ({_leaders_txt}) are excluded — they occupy the
       three automatic berths. <b>GB of TOR</b> is games ahead of Toronto: a positive
-      number is a team the Jays must pass.</div>
+      number is a team the Jays must pass. <b>Rem SOS</b> is what a league-average club
+      would win against that team's remaining opponents — darker is harder — so it
+      compares schedules without each club's own quality leaking in. It explains the
+      odds rather than adjusting them: every remaining game is already simulated
+      against its actual opponent, so schedule strength is priced in game by game.
+      {sos_note}</div>
   </div>
 
   <div class="card" id="curve">

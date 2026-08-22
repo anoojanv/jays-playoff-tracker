@@ -10,7 +10,8 @@ import numpy as np
 import data as D
 import model
 from model import (JAYS, NSIM, TEAMS, AL_TEAMS, CLUSTER, RIVALS, talent, games,
-                   idx, rem, series, jays_game_ix, pythagenpat, momentum)
+                   idx, rem, series, jays_game_ix, pythagenpat, momentum,
+                   strength_of_schedule)
 
 st = model.simulate()
 model.save_state(st)
@@ -31,6 +32,10 @@ out["talent"] = {t: round(talent[t], 4) for t in AL_TEAMS}
 out["cluster"] = CLUSTER
 # recent form against what the model expected; None when there is nothing to measure
 out["momentum"] = momentum()
+# descriptive: what a league-average club would win against each remaining
+# schedule. Already priced into the odds game by game; this just exposes it.
+_sos = strength_of_schedule()
+out["sos"] = {t: (round(v, 4) if v is not None else None) for t, v in _sos.items()}
 out["pythag_record"] = {}
 for t in AL_TEAMS:
     w, l, rs, ra = D.AL[t]
