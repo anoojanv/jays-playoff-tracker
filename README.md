@@ -128,8 +128,14 @@ hours old is not passed off as "since yesterday", and a fresh page shows nothing
 than a fabricated zero. Readings closer together than half an hour collapse into one, so
 the tag cannot grow without bound and a rebuild of unchanged data is idempotent.
 
-If the live page cannot be read, the history simply starts again — that costs a delta and
-nothing else; it can never fail a build.
+If the live page cannot be read, the history falls back to `HISTORY_SEED` in
+`src/fetch_data.py` and, once those points age out, to nothing at all — that costs a delta
+and nothing else; it can never fail a build.
+
+`HISTORY_SEED` is a one-time bootstrap: the page that was live when this shipped carried no
+history, so four readings were transcribed out of the build logs that published it. It is
+used only when the live page has none of its own, which stopped being true with the first
+build after this merged. It expires on its own — deleting it is tidying, not maintenance.
 
 ## Strength of schedule
 
