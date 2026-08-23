@@ -96,6 +96,11 @@ def pct(x, d=1):
     return f"{x*100:.{d}f}%"
 
 
+def _ordinal(n):
+    suf = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suf}"
+
+
 def ramp_for(v, lo, hi):
     """Map a leverage value onto the validated 5-step ordinal ramp (dark end = highest)."""
     if hi <= lo:
@@ -316,9 +321,22 @@ dep_rows = ""
 for i, (t, v) in enumerate(dep_items):
     wpx = abs(v["swing"]) / dmax * 100
     bar_col = C["red"] if i == 0 else C["blue"]      # emphasis: the one that matters most
+    # the toggles feed the in-browser simulator: forcing a rival hot or cold re-runs
+    # the whole field, so the big number and every odds bar move together
+    _ti = AL_ORDER.index(t) if t in AL_ORDER else -1
+    _ctl = ""
+    if _ti >= 0:
+        _ctl = (f'<div class="depctl" role="group" aria-label="Force how the {t} finish">'
+                f'<button type="button" class="db" data-rival="{_ti}" data-mode="-1" '
+                f'aria-pressed="false" title="Force the {t} cold — around {v["cold_w"]:.0f} '
+                f'wins">cold</button>'
+                f'<button type="button" class="db" data-rival="{_ti}" data-mode="1" '
+                f'aria-pressed="false" title="Force the {t} hot — around {v["hot_w"]:.0f} '
+                f'wins">hot</button></div>')
     dep_rows += f"""
     <div class="deprow">
       <div class="depname">{TEAM_ABBR.get(t,t)}</div>
+      {_ctl}
       <div class="deptrack">
         <div class="depbar" style="width:{wpx:.0f}%;background:{bar_col}" title="If {t} finish cold (~{v['cold_w']:.0f}W) the Jays are {pct(v['if_rival_cold'])}; if they finish hot (~{v['hot_w']:.0f}W), {pct(v['if_rival_hot'])}."></div>
       </div>
@@ -384,9 +402,16 @@ for i, g in enumerate(must_see):
 
 # ------------------------------------------------------------------ ensemble strip
 ens = sorted(E["scenarios"], key=lambda s: s["odds"])
+# The strip's scale used to be a literal 5%-14% window — right the week it was written,
+# wrong as soon as the odds left it, with dots sliding off either end of the track.
+# Scale to the scenarios of THIS build, padded so the extremes don't sit on the edges,
+# with a floor on the pad so a decided race (every spec identical) still centres.
+_eod = [s["odds"] for s in ens] or [0.0]
+_epad = max((max(_eod) - min(_eod)) * 0.10, 0.004)
+_elo, _espan = min(_eod) - _epad, (max(_eod) - min(_eod)) + 2 * _epad
 ens_rows = ""
 for s in ens:
-    x = (s["odds"] - 0.05) / (0.14 - 0.05) * 100
+    x = (s["odds"] - _elo) / _espan * 100
     prim = "primary" in s["label"]
     ens_rows += (f'<div class="ensrow"><div class="enslab">{html.escape(s["label"].replace(" - primary model",""))}'
                  f'{" <em>◂ primary</em>" if prim else ""}</div>'
@@ -485,7 +510,7 @@ series_pill = (f"Qualifies winning fewer than {series_floor} of {P['n_series']} 
 
 # ---- three numbers the model already computed but the page never showed ----
 ELIM = R["elimination_number"]
-elim_note = (f"The {ELIM}{'st' if ELIM % 10 == 1 and ELIM != 11 else 'nd' if ELIM % 10 == 2 and ELIM != 12 else 'rd' if ELIM % 10 == 3 and ELIM != 13 else 'th'} "
+elim_note = (f"The {_ordinal(ELIM)} "
              f"loss from here leaves Toronto short of the {CUT_TARGET}-win median cut "
              f"line — {max(0, ELIM - 1)} to spare across {GL} games.")
 
@@ -582,11 +607,6 @@ else:
     momentum_badge = ""
 
 
-def _ordinal(n):
-    suf = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-    return f"{n}{suf}"
-
-
 # where Toronto's remaining road sits among the clubs actually in the race
 _race_sos = [(r["team"], r["sos"]) for r in wc_rows if r["sos"] is not None]
 if len(_race_sos) >= 2 and SOS.get(JAYS) is not None:
@@ -599,6 +619,28 @@ if len(_race_sos) >= 2 and SOS.get(JAYS) is not None:
 else:
     sos_note = ""
 
+
+# ---- the one-line verdict ---------------------------------------------------------
+# A plain-English read of the situation, bucketed from the odds so it can never go
+# stale, with the required record attached while there is still a race to run.
+if GL == 0:
+    _vtxt = "Season complete"
+elif ODDS >= 0.985:
+    _vtxt = "A playoff spot is all but locked up"
+elif ODDS >= 0.75:
+    _vtxt = "In control of a playoff spot"
+elif ODDS >= 0.45:
+    _vtxt = "A genuine coin flip"
+elif ODDS >= 0.15:
+    _vtxt = "Uphill, but very much alive"
+elif ODDS >= 0.005:
+    _vtxt = "A long shot — Toronto needs help"
+else:
+    _vtxt = "All but out"
+verdict_html = (f'<div class="verdict">{_vtxt}'
+                + (f' &mdash; it takes <b>{ROS_W}&ndash;{ROS_L}</b> from here'
+                   if GL and 0.005 <= ODDS < 0.985 else "")
+                + "</div>")
 
 # where Toronto actually sits in its own division — the header said "4th AL East" flat
 _own_div = next(d for d, members in _D.DIVISIONS.items() if JAYS in members)
@@ -755,6 +797,9 @@ h2{{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:{C['brand
 .hdr h1 span{{color:#fff;background:{C['red']};padding:0 8px;border-radius:5px;
  margin:0 2px}}
 .hdr .stamp{{font-size:12px;color:rgba(255,255,255,.74);margin-top:6px}}
+.verdict{{font-size:13.5px;color:rgba(255,255,255,.94);margin-top:9px;font-weight:650;
+ letter-spacing:.005em}}
+.verdict b{{color:#FFD9D6;font-weight:800}}
 .hdrright{{margin-left:auto;display:flex;align-items:center;gap:18px}}
 .hdr .rec{{text-align:right;color:#fff}}
 
@@ -876,6 +921,7 @@ html{{scroll-behavior:smooth}}
  transition:background .18s ease,color .18s ease,border-color .18s ease}}
 .snav a:hover,.snav a:focus-visible{{background:{C['brand']};color:#fff;
  border-color:{C['brand']};outline:none}}
+.snav a.act{{background:{C['brand']};color:#fff;border-color:{C['brand']}}}
 [id]{{scroll-margin-top:62px}}
 
 /* ---- injuries ---- */
@@ -1007,9 +1053,19 @@ td.ex{{color:{C['mute']};text-align:right;width:44px}}
 .lvbar{{height:7px;border-radius:4px}}
 .lvnum{{font-size:11px;color:{C['ink2']};width:26px}}
 
-/* dependency */
+/* dependency — the hot/cold toggles are user input, so their active state is red,
+   the same language as the series picker and the slider */
 .deprow{{display:flex;align-items:center;gap:10px;margin-bottom:9px}}
 .depname{{width:36px;font-weight:800;font-size:12px;color:{C['navy']}}}
+.depctl{{display:inline-flex;gap:4px;flex:none}}
+.db{{font:inherit;font-size:9.5px;font-weight:800;letter-spacing:.05em;
+ text-transform:uppercase;color:{C['ink2']};background:#fff;
+ border:1.5px solid rgba(19,74,142,.22);border-radius:6px;padding:3px 8px;
+ cursor:pointer;transition:all .12s}}
+.db:hover{{border-color:{C['red']};color:{C['redtext']}}}
+.db.on{{background:{C['redtext']};border-color:{C['redtext']};color:#fff}}
+.db:focus-visible{{outline:2px solid rgba(232,41,28,.45);outline-offset:1px}}
+@media(max-width:560px){{.db{{padding:3px 6px;font-size:9px}}}}
 .deptrack{{flex:1;height:8px;background:{C['card2']};border-radius:4px;overflow:hidden}}
 .depbar{{height:100%;border-radius:4px}}
 .depnum{{font-size:11px;color:{C['ink2']};width:104px;text-align:right;
@@ -1132,6 +1188,7 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
   <div>
     <h1>TORONTO <span>BLUE JAYS</span> — PLAYOFF TRACKER</h1>
     <div class="stamp">Standings through {STAMP} · {R['nsim']:,} simulated seasons</div>
+    {verdict_html}
   </div>
   <div class="hdrright">
     <div class="rec">
@@ -1155,7 +1212,7 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
       <div class="oddscap">chance of a playoff spot</div>
       {odds_delta_html}
       <div class="meter"><div class="mfill" id="liveBar"></div></div>
-      <div class="livedelta" id="liveDelta">model baseline &mdash; nothing set yet</div>
+      <div class="livedelta" id="liveDelta" aria-live="polite">model baseline &mdash; nothing set yet</div>
     </div>
 
     <div class="pnctl">
@@ -1180,6 +1237,7 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
         <button type="button" data-preset="twoone" class="ps">2&ndash;1 every series</button>
         <button type="button" data-preset="sweep" class="ps">Sweep everything</button>
         <button type="button" data-preset="cold" class="ps">Slump (1&ndash;2 each)</button>
+        <button type="button" id="shareBtn" class="ps" hidden>Copy link to this scenario</button>
       </div>
       <div class="pnread">
         <div><span class="sv" id="liveRec">&mdash;</span><span class="sl" id="liveRecSub">drag the slider, or tap a series below</span></div>
@@ -1291,7 +1349,11 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
     <h2>Scoreboard watching <span class="sub">— who to root against</span></h2>
     {dep_rows}
     <div class="note">Bar length is how much the Jays' odds move between a rival's
-      cold finish (25th percentile) and hot finish (75th). {dep_note}</div>
+      cold finish (25th percentile) and hot finish (75th). <b>Tap cold or hot</b> to
+      force that finish in the live simulator — the big number, the wild-card odds bars
+      and the projection all re-run with it, and it stacks with whatever you set on the
+      slider or the road map. Tap again to hand the club back to the model.
+      {dep_note}</div>
 
     <h2 style="margin-top:20px">Model sensitivity <span class="sub">— is {pct(ODDS,0)} real?</span></h2>
     {ens_rows}
