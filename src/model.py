@@ -113,14 +113,50 @@ if _cur:
     series.append(_cur)
 
 
-def p_win(opp, at_home):
-    """The model's own probability that Toronto wins that game — log5 plus home edge."""
-    p = log5(talent[JAYS], talent[opp])
+NEUTRAL = 0.500          # a league-average club, for measuring schedules
+
+
+def matchup(self_talent, opp_talent, at_home):
+    """P(win) for a club of `self_talent` against `opp_talent`: log5 plus home edge.
+
+    The same maths p_home uses to build the simulation, exposed so that anything
+    describing the schedule is guaranteed to agree with what is actually simulated.
+    """
+    p = log5(self_talent, opp_talent)
     if at_home:
         o = p / (1 - p) * HFA_ODDS
         return o / (1 + o)
     o = (1 - p) / p * HFA_ODDS              # the opponent gets the edge on the road
     return 1 / (1 + o)
+
+
+def p_win(opp, at_home):
+    """The model's own probability that Toronto wins that game."""
+    return matchup(talent[JAYS], talent[opp], at_home)
+
+
+def strength_of_schedule():
+    """How hard each AL club's remaining games are, independent of how good it is.
+
+    The value is what an identical league-average club would win against that exact
+    run of opponents, home and road included. Holding talent constant is the whole
+    point: it isolates the schedule, so two clubs can be compared directly without
+    their own quality leaking into the number.
+
+    This is descriptive only. The simulation already prices every remaining game
+    against its specific opponent, so strength of schedule is in the odds by
+    construction — this exists to make visible something the odds already know.
+    """
+    out = {}
+    for t in AL_TEAMS:
+        exp, n = 0.0, 0
+        for _, a, h in games:
+            if h == t:
+                exp += matchup(NEUTRAL, talent[a], True); n += 1
+            elif a == t:
+                exp += matchup(NEUTRAL, talent[h], False); n += 1
+        out[t] = (exp / n) if n else None
+    return out
 
 
 def momentum(decay=0.90, window=25):

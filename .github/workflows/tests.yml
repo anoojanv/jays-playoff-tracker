@@ -45,6 +45,9 @@ jobs:
       - name: Polling decision, every path
         run: python src/selftest_check.py
 
+      - name: Strength of schedule
+        run: python tests/test_sos.py
+
       - name: Momentum rating semantics
         run: python tests/test_momentum.py
 

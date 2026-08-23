@@ -82,6 +82,10 @@ ROSTER = {"roster": [
      "status": {"code": "A", "description": "Active"}},
     {"person": {"id": 3, "fullName": "Nate Kowalski"}, "position": {"abbreviation": "C"},
      "status": {"code": "D7", "description": "7-Day Injured List"}},
+    # not injured — designated for assignment. The code starts with "D", which is
+    # exactly how 44 "injured" players reached the first live run.
+    {"person": {"id": 4, "fullName": "Cut Loose"}, "position": {"abbreviation": "1B"},
+     "status": {"code": "DES", "description": "Designated for Assignment"}},
 ]}
 TRANSACTIONS = {"transactions": [
     {"person": {"fullName": "Dalton Reyes"}, "date": "2026-08-06",
@@ -171,6 +175,8 @@ def main():
     inj = {p["name"]: p for p in got.get("INJURIES", [])}
     if "Healthy Hank" in inj:
         fails.append("an active player was reported as injured")
+    if "Cut Loose" in inj:
+        fails.append("a DES (designated for assignment) player was reported as injured")
     if set(inj) != {"Dalton Reyes", "Nate Kowalski"}:
         fails.append(f"wrong players on the IL: {sorted(inj)}")
     elif inj["Dalton Reyes"]["eligible"] != "2026-08-21":

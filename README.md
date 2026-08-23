@@ -111,6 +111,20 @@ The build fails — and publishes nothing — if the schedule doesn't reconcile,
 comes out suspiciously small, if it somehow references an external URL, or if the
 interactive markup is missing.
 
+## Strength of schedule
+
+It is already in every probability on the page, and not as an adjustment: each remaining
+game is simulated against that specific opponent, with home field applied, so a hard
+run-in shows up as lower win probabilities game by game. Adding a schedule factor on top
+of that would double-count it.
+
+What the page was missing was any way to *see* it. The **Rem SOS** column in the wild-card
+table is what a league-average club would win against that team's remaining opponents.
+Holding talent constant is the point — it isolates the schedule, so two clubs can be
+compared without their own quality leaking into the number. Darker is harder.
+
+The column explains the odds rather than changing them.
+
 ## Momentum
 
 The badge beside the record is recent form measured against the model's own expectation,
@@ -156,6 +170,7 @@ games-played to 162 minus what it has left, so it reconciles by construction.
 python src/selftest_fetch.py    # the MLB fetch, with the network mocked
 python src/selftest_check.py    # the polling decision, all six paths
 python tests/test_momentum.py   # the momentum rating's semantics
+python tests/test_sos.py        # strength of schedule, and that it matches the sim
 python tests/test_reconcile.py  # the 162-game check, over- and under-count
 python tests/test_endgame.py    # the page still builds once the race is decided
 python tests/make_fixture.py    # rebuild the fixture (must be byte-identical; CI checks)
