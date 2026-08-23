@@ -183,6 +183,24 @@ per-series buttons re-run ~14,000 full seasons in the browser on every change. L
 Jays win also locks the opponent's loss, which is why a scenario's odds differ slightly
 from reading the win-total curve.
 
+## Scenario controls
+
+Three controls drive one scenario, and every change re-runs the browser simulation:
+
+- **The slider** sets a rest-of-season win total, spread across the remaining series in
+  proportion to what qualifying seasons take from each.
+- **The road-map buttons** lock an individual series result; the slider moves to match.
+- **The hot/cold toggles** in Scoreboard watching force a rival's finish. The shift is
+  calibrated per club so a forced finish lands near the 25th/75th-percentile win totals
+  the dependency bars already describe (a logit shift of 1.348/√G over G remaining
+  games), rather than some arbitrary collapse — so tapping *cold* moves the odds by
+  about what the bar next to it promises.
+
+The whole scenario — series results and rival biases — round-trips through the URL
+hash, so a **Copy link** button appears whenever something is set and the link restores
+the exact scenario on load. Nothing is stored anywhere else; the page stays
+self-contained and `build.py`'s verifier still enforces that.
+
 ## Tests
 
 Everything is offline: the two parts that talk to the outside world are stubbed, and both
