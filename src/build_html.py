@@ -1169,7 +1169,7 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
 
 <div class="grid2b">
   <div class="card" id="race">
-    <h2>The AL Wild Card race <span class="sub">— three spots, nine teams</span></h2>
+    <h2>The AL Wild Card race <span class="sub">— {cut_after} spots, {len(wc_rows)} teams</span></h2>
     <div class="tscroll"><table>
       <thead><tr><th>Team</th><th style="text-align:right">W–L</th>
         <th style="text-align:right">GB<br>of TOR</th><th style="text-align:right">Run<br>diff</th>
