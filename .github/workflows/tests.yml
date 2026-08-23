@@ -45,6 +45,9 @@ jobs:
       - name: Polling decision, every path
         run: python src/selftest_check.py
 
+      - name: Day-over-day history and deltas
+        run: python tests/test_history.py
+
       - name: Strength of schedule
         run: python tests/test_sos.py
 

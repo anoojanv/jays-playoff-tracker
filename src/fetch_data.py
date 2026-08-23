@@ -306,6 +306,37 @@ def recent_form(team_id, today, days=45, limit=25):
     return out
 
 
+SITE_URL = os.environ.get("SITE_URL", "https://jays-playoff-tracker.netlify.app").rstrip("/")
+
+
+def published_history():
+    """The history carried by the page currently live, so this build can extend it.
+
+    Best-effort in the same way as the injury report: if the live page cannot be read
+    the history simply starts over, which costs a day-over-day delta and nothing else.
+    Never fatal — a page with no delta is far better than no page.
+    """
+    data = None
+    try:
+        req = urllib.request.Request(
+            SITE_URL + "/?h=" + str(int(datetime.datetime.now(
+                datetime.timezone.utc).timestamp())),
+            headers={"User-Agent": "jays-tracker/1.0", "Cache-Control": "no-cache"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = r.read().decode("utf-8", "ignore")
+    except Exception as e:
+        print(f"  note: could not read the live page for history ({e})")
+        return ""
+    import re as _re
+    m = _re.search(r'<meta name="page-history" content="([^"]*)"', data or "")
+    if not m:
+        print("  note: live page carries no history yet — starting one")
+        return ""
+    pts = m.group(1).count(",") + 1 if m.group(1) else 0
+    print(f"  history: {pts} previous readings carried forward")
+    return m.group(1)
+
+
 def bref_odds():
     """Best-effort comparison number. Never fatal — the page hides the pill if absent."""
     try:
@@ -402,6 +433,7 @@ def main():
         "DIVISIONS": DIVISIONS, "GAMES": games, "BREF": bref_odds(),
         "INJURIES": injuries(),
         "RECENT": recent_form(141, today),
+        "HISTORY": published_history(),
         "SYNTHETIC": [list(g) for g in SYNTHETIC_GAMES],
         "REMOVED": [list(g) for g in ignored + dropped],
         "fingerprint": fingerprint(al, nl),
