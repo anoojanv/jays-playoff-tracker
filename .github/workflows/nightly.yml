@@ -81,15 +81,47 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ vars.NETLIFY_SITE_ID || '0a3e85c0-7356-4468-9b79-3d97c57dce8c' }}
         run: |
+          set -uo pipefail
           if [ -z "$NETLIFY_AUTH_TOKEN" ]; then
             echo "::error::NETLIFY_AUTH_TOKEN secret is not set — see README step 3."
             exit 1
           fi
-          npx --yes netlify-cli@17 deploy \
-            --prod \
-            --dir public \
-            --site "$NETLIFY_SITE_ID" \
-            --message "build ${{ github.run_number }}"
+
+          # Pre-flight. The check above only proves the secret is non-empty, which is why
+          # an expired token surfaced as a bare "Unauthorized: could not retrieve site"
+          # half a minute into the deploy, and left the page stale for days. Ask Netlify
+          # directly instead, and say what to do about it.
+          code=$(curl -sS -m 20 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID" || echo 000)
+          case "$code" in
+            200)
+              echo "Netlify auth OK for site $NETLIFY_SITE_ID"
+              ;;
+            401|403)
+              echo "::error::Netlify rejected the token (HTTP $code) — it has expired, been revoked, or lost access to site $NETLIFY_SITE_ID. Mint a new one (README step 2) and update the NETLIFY_AUTH_TOKEN secret. The page built fine; only publishing is blocked."
+              exit 1
+              ;;
+            404)
+              echo "::error::Netlify has no site $NETLIFY_SITE_ID visible to this token. If the site was recreated or moved team, set the NETLIFY_SITE_ID repository variable to the new ID."
+              exit 1
+              ;;
+            *)
+              echo "::warning::Could not pre-check Netlify (HTTP $code) — attempting the deploy anyway."
+              ;;
+          esac
+
+          # Retry transient failures only. Anything authentication-shaped already exited
+          # above, so this never burns attempts on something a retry cannot fix.
+          for attempt in 1 2 3; do
+            if npx --yes netlify-cli@17 deploy --prod --dir public --site "$NETLIFY_SITE_ID" --message "build ${{ github.run_number }}"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::Deploy attempt $attempt failed — retrying in $((attempt * 10))s"
+              sleep $((attempt * 10))
+            fi
+          done
+          echo "::error::Netlify deploy failed three times. The page built and is attached to this run as an artifact; only publishing failed."
+          exit 1
 
       - name: Summary
         if: always()
