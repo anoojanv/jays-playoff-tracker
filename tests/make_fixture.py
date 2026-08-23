@@ -146,6 +146,8 @@ def main():
         "GAMES": games,
         "BREF": None,                               # never depend on a live scrape
         "SYNTHETIC": [],
+        # empty: a fixture build starts its own history, so nothing to freeze
+        "HISTORY": "",
         # 14 completed games ending the day before AS_OF, alternating opponents, with a
         # deliberate late hot streak so the momentum rating is non-zero and testable
         "RECENT": [

@@ -529,6 +529,42 @@ _leaders_txt = ", ".join(TEAM_ABBR.get(t, t)
                          for t in sorted(div_leaders, key=_winpct, reverse=True))
 
 
+# ---- day-over-day change, carried in the page itself (see history.py) ----
+import history as _H
+
+_now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+_mom_idx = (R.get("momentum") or {}).get("index")
+HIST = _H.append(_H.parse(_D.HISTORY), _now, ODDS, _mom_idx)
+HIST_META = _H.encode(HIST)
+DELTA = _H.delta(_H.parse(_D.HISTORY), _now, ODDS, _mom_idx)
+
+
+def _ago(h):
+    return "a day" if 20 <= h <= 28 else (f"{h:.0f} hours" if h < 48 else f"{h/24:.0f} days")
+
+
+def _chip(value, unit, cls_prefix, digits=1):
+    """A signed change chip. No chip at all when there is nothing to compare against."""
+    if value is None:
+        return ""
+    if abs(value) < (0.05 if digits else 0.5):
+        return f'<span class="{cls_prefix} flat">no change</span>'
+    arrow = "&#9650;" if value > 0 else "&#9660;"
+    tone = "up" if value > 0 else "down"
+    return (f'<span class="{cls_prefix} {tone}">{arrow} '
+            f'{abs(value):+.{digits}f}{unit}</span>'.replace("+", ""))
+
+
+odds_delta_html = ""
+mom_delta_html = ""
+if DELTA:
+    odds_delta_html = (f'<div class="oddsdelta">{_chip(DELTA["odds"] * 100, " pts", "chg")}'
+                       f'<span class="chgwhen">vs {_ago(DELTA["age_hours"])} ago '
+                       f'({pct(DELTA["prev_odds"])})</span></div>')
+    if DELTA["momentum"] is not None:
+        mom_delta_html = _chip(float(DELTA["momentum"]), "", "momchg", digits=0)
+
+
 MOM = R.get("momentum")
 if MOM:
     _arrow = "&#9650;" if MOM["index"] > 0 else ("&#9660;" if MOM["index"] < 0 else "&#9644;")
@@ -539,7 +575,7 @@ if MOM:
         f'<div class="mom mom-{MOM["tone"]}" title="{html.escape(_tip)}">'
         f'<div class="momtop"><span class="momarr">{_arrow}</span>'
         f'<span class="momidx">{MOM["index"]:+d}</span></div>'
-        f'<div class="momlab">{html.escape(MOM["label"])}</div>'
+        f'<div class="momlab">{html.escape(MOM["label"])}{mom_delta_html}</div>'
         f'<div class="momsub">{MOM["l10_w"]}&ndash;{MOM["l10_l"]} last 10 '
         f'&middot; {MOM["l10_expected_w"]} expected</div></div>')
 else:
@@ -684,6 +720,7 @@ HTML = f"""<!DOCTYPE html>
 <title>Blue Jays Playoff Tracker — {DATE.strftime('%b %-d, %Y')}</title>
 <meta name="robots" content="noindex,nofollow">
 <meta name="data-fingerprint" content="{_D.FINGERPRINT}">
+<meta name="page-history" content="{HIST_META}">
 <meta name="theme-color" content="{C['brand']}">
 <meta name="description" content="Toronto {W}–{L}. {ODDS*100:.1f}% to reach the playoffs. What it takes: {P['ros_needed_w']}–{P['ros_needed_l']} the rest of the way, {series_won:.0f} of {P['n_series']} remaining series. Updated {DATE.strftime('%b %-d')}.">
 <meta property="og:type" content="website">
@@ -910,6 +947,16 @@ html{{scroll-behavior:smooth}}
 .clkey{{width:11px;height:11px;border-radius:3px;
  box-shadow:inset 0 0 0 2.5px {C['red']};background:{C['card2']}}}
 @media(max-width:560px){{.cmon{{flex:1 1 100%}} .snav a{{font-size:11px;padding:5px 10px}}}}
+.oddsdelta{{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;margin-top:7px}}
+.chg{{font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums;
+ letter-spacing:-.01em}}
+.chg.up{{color:{C['good']}}} .chg.down{{color:{C['redtext']}}}
+.chg.flat{{color:{C['mute']};font-weight:700}}
+.chgwhen{{font-size:10.5px;color:{C['mute']}}}
+.momchg{{margin-left:6px;font-size:9.5px;font-weight:800;letter-spacing:.02em;
+ font-variant-numeric:tabular-nums;opacity:.92}}
+.momchg.up{{color:#5BE49B}} .momchg.down{{color:#FFAE6B}}
+.momchg.flat{{color:rgba(255,255,255,.6)}}
 .sos{{display:inline-block;min-width:42px;padding:2px 6px;border-radius:5px;
  font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;text-align:center}}
 .sosna{{color:{C['axis']}}}
@@ -1106,6 +1153,7 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
     <div class="pnodds">
       <div class="big"><span id="liveOdds">{ODDS*100:.1f}</span><small>%</small></div>
       <div class="oddscap">chance of a playoff spot</div>
+      {odds_delta_html}
       <div class="meter"><div class="mfill" id="liveBar"></div></div>
       <div class="livedelta" id="liveDelta">model baseline &mdash; nothing set yet</div>
     </div>

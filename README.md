@@ -111,6 +111,32 @@ The build fails — and publishes nothing — if the schedule doesn't reconcile,
 comes out suspiciously small, if it somehow references an external URL, or if the
 interactive markup is missing.
 
+## Day-over-day change
+
+The odds carry a delta against roughly 24 hours ago, and the momentum badge carries one
+too. There is still no database: the page keeps a short history in a `page-history` meta
+tag, and each build reads the live page, appends today's reading, and republishes it —
+the same "the published page is its own state file" trick `check_changed.py` uses for the
+fingerprint.
+
+It has to be a history rather than just the previous value, because the site rebuilds
+every time a game finishes — up to twenty times a day. A "since last publish" delta would
+be one game's noise rather than a day's movement.
+
+When nothing in the history is far enough back, **no delta is shown at all**. A point three
+hours old is not passed off as "since yesterday", and a fresh page shows nothing rather
+than a fabricated zero. Readings closer together than half an hour collapse into one, so
+the tag cannot grow without bound and a rebuild of unchanged data is idempotent.
+
+If the live page cannot be read, the history falls back to `HISTORY_SEED` in
+`src/fetch_data.py` and, once those points age out, to nothing at all — that costs a delta
+and nothing else; it can never fail a build.
+
+`HISTORY_SEED` is a one-time bootstrap: the page that was live when this shipped carried no
+history, so four readings were transcribed out of the build logs that published it. It is
+used only when the live page has none of its own, which stopped being true with the first
+build after this merged. It expires on its own — deleting it is tidying, not maintenance.
+
 ## Strength of schedule
 
 It is already in every probability on the page, and not as an adjustment: each remaining
@@ -171,6 +197,7 @@ python src/selftest_fetch.py    # the MLB fetch, with the network mocked
 python src/selftest_check.py    # the polling decision, all six paths
 python tests/test_momentum.py   # the momentum rating's semantics
 python tests/test_sos.py        # strength of schedule, and that it matches the sim
+python tests/test_history.py    # the day-over-day deltas and the page's own history
 python tests/test_reconcile.py  # the 162-game check, over- and under-count
 python tests/test_endgame.py    # the page still builds once the race is decided
 python tests/make_fixture.py    # rebuild the fixture (must be byte-identical; CI checks)

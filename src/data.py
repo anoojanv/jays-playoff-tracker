@@ -17,6 +17,8 @@ BREF      = _D.get("BREF")
 SYNTHETIC = [tuple(g) for g in _D.get("SYNTHETIC", [])]
 # games dropped by hand (IGNORE_GAMES) or auto-detected as already played
 REMOVED = [tuple(g) for g in _D.get("REMOVED", [])]
+# encoded readings carried forward from the published page; see history.py
+HISTORY = _D.get("HISTORY", "")
 # the Blue Jays' last completed games, oldest first; drives the momentum rating
 RECENT = _D.get("RECENT", [])
 INJURIES = _D.get("INJURIES", [])

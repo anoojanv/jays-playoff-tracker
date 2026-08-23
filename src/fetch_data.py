@@ -306,6 +306,56 @@ def recent_form(team_id, today, days=45, limit=25):
     return out
 
 
+SITE_URL = os.environ.get("SITE_URL", "https://jays-playoff-tracker.netlify.app").rstrip("/")
+
+# One-time bootstrap for the day-over-day delta.
+#
+# The history lives in the published page, and the page that was live when this feature
+# shipped carried none — so the first day would have had nothing to compare against and
+# no delta at all. These four readings are transcribed from the build logs of the runs
+# that published those pages, in history.py's own encoding: epoch seconds, playoff odds
+# in tenths of a percent, momentum index.
+#
+#   2026-08-21 22:33 UTC   21.5%   +20        2026-08-22 20:32 UTC   17.0%   +13
+#   2026-08-22 01:44 UTC   21.2%   +20        2026-08-22 23:29 UTC   22.1%   +19
+#
+# It applies only when the live page has no history of its own, so it stops mattering as
+# soon as the first build with this feature publishes, and prune() drops the points once
+# they age out. Nothing needs to happen for it to expire; deleting it is tidying, not
+# maintenance.
+HISTORY_SEED = ("1787351599:215:20,1787363088:212:20,"
+                "1787430764:170:13,1787441348:221:19")
+
+
+def published_history():
+    """The history carried by the page currently live, so this build can extend it.
+
+    Best-effort in the same way as the injury report: if the live page cannot be read
+    the history falls back to HISTORY_SEED, and once that has aged out, to nothing at
+    all — which costs a day-over-day delta and nothing else. Never fatal: a page with
+    no delta is far better than no page.
+    """
+    data = None
+    try:
+        req = urllib.request.Request(
+            SITE_URL + "/?h=" + str(int(datetime.datetime.now(
+                datetime.timezone.utc).timestamp())),
+            headers={"User-Agent": "jays-tracker/1.0", "Cache-Control": "no-cache"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = r.read().decode("utf-8", "ignore")
+    except Exception as e:
+        print(f"  note: could not read the live page for history ({e})")
+        return HISTORY_SEED
+    import re as _re
+    m = _re.search(r'<meta name="page-history" content="([^"]*)"', data or "")
+    if not m:
+        print("  note: live page carries no history yet — seeding from the build logs")
+        return HISTORY_SEED
+    pts = m.group(1).count(",") + 1 if m.group(1) else 0
+    print(f"  history: {pts} previous readings carried forward")
+    return m.group(1)
+
+
 def bref_odds():
     """Best-effort comparison number. Never fatal — the page hides the pill if absent."""
     try:
@@ -402,6 +452,7 @@ def main():
         "DIVISIONS": DIVISIONS, "GAMES": games, "BREF": bref_odds(),
         "INJURIES": injuries(),
         "RECENT": recent_form(141, today),
+        "HISTORY": published_history(),
         "SYNTHETIC": [list(g) for g in SYNTHETIC_GAMES],
         "REMOVED": [list(g) for g in ignored + dropped],
         "fingerprint": fingerprint(al, nl),
