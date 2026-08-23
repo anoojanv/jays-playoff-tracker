@@ -1,0 +1,14 @@
+# Netlify configuration for the Back to School HQ app, which lives in
+# kids-shopping-app/ on this branch. Paths here are relative to the repo root.
+[build]
+  base = "kids-shopping-app"
+  command = "npm run build"
+  publish = "kids-shopping-app/dist"
+
+[functions]
+  directory = "kids-shopping-app/netlify/functions"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
