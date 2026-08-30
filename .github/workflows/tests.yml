@@ -42,6 +42,9 @@ jobs:
       - name: Schedule reconciliation, both directions
         run: python tests/test_reconcile.py
 
+      - name: A game still in "Game Over" reconciles
+        run: python tests/test_gameover.py
+
       - name: Polling decision, every path
         run: python src/selftest_check.py
 

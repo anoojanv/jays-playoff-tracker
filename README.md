@@ -217,6 +217,7 @@ python tests/test_momentum.py   # the momentum rating's semantics
 python tests/test_sos.py        # strength of schedule, and that it matches the sim
 python tests/test_history.py    # the day-over-day deltas and the page's own history
 python tests/test_reconcile.py  # the 162-game check, over- and under-count
+python tests/test_gameover.py   # a game still in "Game Over", both sides of the race
 python tests/test_endgame.py    # the page still builds once the race is decided
 python tests/make_fixture.py    # rebuild the fixture (must be byte-identical; CI checks)
 ```
@@ -260,6 +261,13 @@ upcoming. `drop_phantoms()` clears this automatically when it's unambiguous — 
 dated on or before the last confirmed final, and every AL club in it is over 162 — and
 refuses otherwise, so a real future fixture is never silently deleted. If one survives
 that, it usually clears within a poll or two; failing that, add it to `IGNORE_GAMES`.
+
+The common case is a game MLB has marked **"Game Over"** but not yet **"Final"** — the
+official scorer signs off some minutes later, and the standings count the game the moment
+it is over. Both states count as a played date, so `as_of` keeps up and `drop_phantoms()`
+can act on it. The game itself is only removed once the standings prove they have counted
+it, so a game that is merely over is still a game to play, and the club stays at 162
+either way.
 
 Either way the adjustment is stated in the page's methodology footnote. Remove the entry
 once the feed corrects itself.

@@ -119,13 +119,32 @@ def schedule(team_id, start, final_dates):
     games = []
     for d in get(url).get("dates", []):
         for g in d.get("games", []):
-            if g.get("status", {}).get("codedGameState") == "F":
+            state = g.get("status", {}).get("codedGameState")
+            # A day is "done" if any game on it has been played. F = final; O = game
+            # over, which means the game is complete but the official scorer has not
+            # signed off yet. The standings count an O game immediately, so it is
+            # every bit as much evidence as an F that this date has been played.
+            #
+            # Only counting F here is what broke the build on 2026-08-30: a Mariners
+            # game at Toronto sat in O, the standings had already counted it, and both
+            # clubs reconciled to 163 -- but as_of was still the day before, so
+            # drop_phantoms() would not touch a game dated today and the build failed
+            # with nothing a human could usefully do about it.
+            if state in ("F", "O"):
                 final_dates.add(d["date"])
             # Keep only games still to be played. F = final, C = cancelled,
             # D = postponed (the makeup shows up separately with its own date).
+            #
+            # O is deliberately NOT filtered here. The standings and the schedule flip
+            # over at slightly different moments, so a game that is over is dropped
+            # only once the standings prove they have counted it -- which is precisely
+            # what drop_phantoms() checks. That fails safe in both directions: counted
+            # already and the club is at 163, so the game is dropped; not counted yet
+            # and the club is at 162, so it is left alone as a game still to play.
+            #
             # If this filter is ever wrong the 162-game check below fails the build
             # rather than letting a miscounted schedule reach the page.
-            if g.get("status", {}).get("codedGameState") in ("F", "C", "D"):
+            if state in ("F", "C", "D"):
                 continue
             games.append((d["date"],
                           canon(g["teams"]["away"]["team"]["name"]),
