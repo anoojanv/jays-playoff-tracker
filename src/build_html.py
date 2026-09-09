@@ -1,5 +1,5 @@
 """Render the Blue Jays playoff tracker from simulation output."""
-import json, datetime, html
+import json, datetime, html, os
 
 R = json.load(open("results.json"))
 P = json.load(open("path.json"))
@@ -8,6 +8,7 @@ import data as _D
 EXT = _D.BREF or {}
 
 JAYS = "Blue Jays"
+SITE_URL = os.environ.get("SITE_URL", "https://jays-playoff-tracker.netlify.app").rstrip("/")
 ODDS = R["odds"]["playoff"]
 LO, HI = E["lo"], E["hi"]
 W, L = R["record"]["w"], R["record"]["l"]
@@ -21,6 +22,8 @@ PROJ = R["proj_wins"]["mean"]
 # after it. Anything asserted on the page is now computed from the current build.
 CLUSTER = R.get("cluster", [])
 CLUSTER_GAMES = R["cluster_games"]
+import model as _M
+model_gb = _M.CLUSTER_GB
 CUT_TARGET = P["cut_target_w"]
 ROS_W, ROS_L = P["ros_needed_w"], P["ros_needed_l"]
 
@@ -347,7 +350,10 @@ for i, (t, v) in enumerate(dep_items):
 lev = sorted(R["leverage"], key=lambda x: -x["leverage"])
 seen, must_see = set(), []
 for g in lev:
-    key = (g["opp"], g["date"][:7])
+    # one game per series. This was keyed on (opponent, month), which both let two
+    # games of the same series fill two slots and hid a second series against the same
+    # club in the same month entirely.
+    key = g.get("series", (g["opp"], g["date"][:7]))
     if len(must_see) >= 5:
         break
     if key in seen:
@@ -480,6 +486,71 @@ INJ_JS = r"""<script>
 })();
 </script>"""
 
+LIVE_JS = r"""<script>
+/* Time, in the reader's terms. The build stamps UTC; the browser renders Eastern time,
+   says "tonight" or "underway" about the next game, and warns when the page is old
+   enough that a game is probably missing. No network, no storage — build.py's verifier
+   keeps the page self-contained. */
+(function () {
+  "use strict";
+  var TZ = "America/Toronto";
+  function fmt(d, opts) {
+    try { return new Intl.DateTimeFormat("en-CA", Object.assign({ timeZone: TZ }, opts)).format(d); }
+    catch (e) { return d.toUTCString(); }
+  }
+  function etDay(d) { return fmt(d, { year: "numeric", month: "2-digit", day: "2-digit" }); }
+  function etTime(d) { return fmt(d, { hour: "numeric", minute: "2-digit" }).replace(/\.\s?/g, "").toUpperCase() + " ET"; }
+  function etStamp(d) { return fmt(d, { weekday: "short", month: "short", day: "numeric" }) + ", " + etTime(d); }
+  var now = new Date();
+
+  var upd = document.getElementById("updAgo"), gen = null;
+  if (upd && upd.dataset.utc) gen = new Date(upd.dataset.utc);
+  if (gen && !isNaN(gen)) {
+    var hrs = (now - gen) / 36e5;
+    upd.textContent = "updated " + (hrs < 1 ? Math.max(1, Math.round(hrs * 60)) + " min ago"
+                      : hrs < 48 ? Math.round(hrs) + "h ago" : Math.round(hrs / 24) + " days ago");
+    var stale = document.getElementById("stale");
+    if (stale && hrs > 30) {
+      stale.innerHTML = "<b>This page is " + Math.round(hrs / 24 * 10) / 10 + " days old.</b> " +
+        "It was last rebuilt " + etStamp(gen) + ", so at least one game is probably missing " +
+        "and every number here is from before it.";
+      stale.hidden = false;
+    }
+    var g = document.getElementById("genET");
+    if (g) g.textContent = etStamp(gen);
+  }
+
+  var nx = document.getElementById("next");
+  if (nx) {
+    var when = document.getElementById("nxWhen"), t = document.getElementById("nxTime");
+    var start = nx.dataset.utc ? new Date(nx.dataset.utc) : null, state = nx.dataset.state;
+    var dayLabel = "Next game";
+    var day = nx.dataset.date, today = etDay(now);
+    var tomorrow = etDay(new Date(now.getTime() + 864e5));
+    if (day === today) dayLabel = "Tonight";
+    else if (day === tomorrow) dayLabel = "Tomorrow";
+    else if (day < today) dayLabel = "Awaiting rebuild";
+    if (start && !isNaN(start)) {
+      t.textContent = etStamp(start);
+      var mins = (now - start) / 6e4;
+      if (state === "I" || (mins > 0 && mins < 240)) { dayLabel = "Underway"; nx.classList.add("live"); }
+      else if (mins >= 240) { dayLabel = "Played · odds update after the next rebuild"; }
+    }
+    when.textContent = dayLabel;
+  }
+
+  var cap = document.getElementById("calCap");
+  if (cap) {
+    var cells = document.querySelectorAll(".cday.game[data-cap]");
+    function show(e) { cap.innerHTML = e.currentTarget.dataset.cap; }
+    for (var i = 0; i < cells.length; i++) {
+      cells[i].addEventListener("click", show);
+      cells[i].addEventListener("focus", show);
+    }
+  }
+})();
+</script>"""
+
 # comparison odds are best-effort: hide the pill entirely if the scrape failed
 if EXT and EXT.get("odds"):
     _d = EXT.get("date")
@@ -531,8 +602,25 @@ else:
 # how much of the chase is passing people rather than just winning
 PASS_N = len(CLUSTER)
 pass_v = f"{R['pass_given_in']:.1f} of {PASS_N}"
-pass_note = (f"Clubs in the {', '.join(CLUSTER)} cluster that Toronto finishes ahead of, "
-             f"averaged over the seasons where they qualify.")
+pass_note = (f"Of the clubs within {model_gb:.0f} games of Toronto ({', '.join(CLUSTER)}), "
+             f"how many Toronto finishes ahead of in the seasons where they qualify.")
+
+# magic or tragic number, as fans quote it: against the one club on the other side of
+# the line, straight from the standings
+LINE = R.get("line") or {}
+if LINE:
+    _vs_ab = TEAM_ABBR.get(LINE["vs"], LINE["vs"])
+    line_v = str(LINE["n"])
+    if LINE["mode"] == "magic":
+        line_l = f"Magic number vs {_vs_ab}"
+        line_note = (f"Any combination of {LINE['n']} Toronto wins and {LINE['vs']} losses "
+                     f"{LINE['what']}.")
+    else:
+        line_l = f"Tragic number vs {_vs_ab}"
+        line_note = (f"Any combination of {LINE['n']} Toronto losses and {LINE['vs']} wins "
+                     f"puts the spot they hold out of reach.")
+else:
+    line_v, line_l, line_note = "&mdash;", "Magic number", ""
 
 # ---- the three notes that used to assert last week's facts ----
 _spread = HI - LO
@@ -646,6 +734,38 @@ verdict_html = (f'<div class="verdict">{_vtxt}'
 _own_div = next(d for d, members in _D.DIVISIONS.items() if JAYS in members)
 _div_rank = sorted(_D.DIVISIONS[_own_div], key=_winpct, reverse=True).index(JAYS) + 1
 div_pos = f"{_ordinal(_div_rank)} {_own_div}"
+DIV = R.get("division") or {}
+if DIV and GL:
+    if DIV.get("leader") == JAYS:
+        div_line = (f"Lead the {DIV['name']} by {DIV['lead_by']:.1f} &middot; "
+                    f"{pct(DIV['odds'], 0)} to win it")
+    else:
+        div_line = (f"{DIV['gb']:.1f} back of {TEAM_ABBR.get(DIV['leader'], DIV['leader'])} "
+                    f"in the {DIV['name']} &middot; {pct(DIV['odds'], 0)} to win it")
+else:
+    div_line = ""
+
+# the next game: who, when (first pitch is rendered in Eastern time by the browser),
+# and what a win or a loss does to the odds. The first thing a fan wants to know, and
+# until now the page did not say it anywhere.
+NG_ = R.get("next_game")
+if NG_ and GL:
+    _nd = datetime.date.fromisoformat(NG_["date"])
+    _nopp = TEAM_ABBR.get(NG_["opp"], NG_["opp"])
+    next_html = f"""
+<div class="next" id="next" data-utc="{html.escape(NG_.get('utc') or '')}"
+     data-state="{html.escape(NG_.get('state') or '')}" data-date="{NG_['date']}">
+  <div class="nxwhen"><b id="nxWhen">Next game</b>
+    <span id="nxTime">{_nd.strftime('%a %b %-d')}</span></div>
+  <div class="nxmatch">{'vs' if NG_['home'] else '@'} {html.escape(NG_['opp'])}
+    <span class="rec">{NG_['opp_record']}</span></div>
+  <div class="nxodds"><span class="nxw">Win &rarr; {pct(NG_['p_win'])}</span>
+    <span class="nxl">Loss &rarr; {pct(NG_['p_loss'])}</span>
+    <span class="nxswing">&plusmn;{NG_['leverage']*100:.1f} pts</span></div>
+</div>"""
+else:
+    next_html = ""
+GENERATED_UTC = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 # ---- section navigation ----------------------------------------------------------
 SECTIONS = [("play", "Play it out"), ("takes", "What it takes"), ("race", "WC race"),
@@ -723,8 +843,13 @@ if _by_date:
                 ix = _ramp_ix(g["leverage"])
                 bg = C["ramp"][::-1][ix]
                 star = (key, g["opp"]) in _top5
+                _cap = (f'{d.strftime("%a %b %-d")} &middot; '
+                        f'{"vs" if g["home"] else "at"} {html.escape(g["opp"])} &middot; '
+                        f'win &rarr; {pct(g.get("p_win", 0))}, loss &rarr; '
+                        f'{pct(g.get("p_loss", 0))} ({g["leverage"]*100:.1f} pts)')
                 cells += (
-                    f'<div class="cday game{" key" if star else ""}" '
+                    f'<div class="cday game{" key" if star else ""}" tabindex="0" '
+                    f'data-cap="{_cap}" '
                     f'style="background:{bg};color:{"#fff" if ix >= 2 else C["navy"]}" '
                     f'title="{"vs" if g["home"] else "at"} {html.escape(g["opp"])} '
                     f'&middot; {g["leverage"]*100:.1f} pts of playoff odds">'
@@ -760,7 +885,7 @@ HTML = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Blue Jays Playoff Tracker — {DATE.strftime('%b %-d, %Y')}</title>
-<meta name="robots" content="noindex,nofollow">
+<meta name="robots" content="index,follow">
 <meta name="data-fingerprint" content="{_D.FINGERPRINT}">
 <meta name="page-history" content="{HIST_META}">
 <meta name="theme-color" content="{C['brand']}">
@@ -768,6 +893,11 @@ HTML = f"""<!DOCTYPE html>
 <meta property="og:type" content="website">
 <meta property="og:title" content="Blue Jays Playoff Tracker — {ODDS*100:.1f}%">
 <meta property="og:description" content="Toronto {W}–{L}, {abs(gb_wc3):.1f} back of the third wild card. Needs {P['ros_needed_w']}–{P['ros_needed_l']} to reach the {CUT:.0f}-win cut line. {R['nsim']:,} simulated seasons, updated {DATE.strftime('%b %-d')}.">
+<meta property="og:url" content="{SITE_URL}/">
+<meta property="og:image" content="{SITE_URL}/og.png?v={_D.FINGERPRINT}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230B1A33'/%3E%3Cpath d='M7 22V10h6a3.2 3.2 0 010 6.4H7' stroke='%234691E8' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3Cpath d='M13 16.4a3.2 3.2 0 010 6.4H7' stroke='%234691E8' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3Cpath d='M19 10l3.5 12L26 10' stroke='%23E8555F' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
@@ -823,6 +953,33 @@ h2{{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:{C['brand
 .mom-icy .momidx,.mom-icy .momlab,.mom-icy .momarr{{color:#FFAE6B}}
 @media(max-width:700px){{.hdrright{{gap:12px}} .mom{{min-width:0;padding:7px 10px}}
  .momsub{{display:none}}}}
+.divline{{font-size:11px;color:rgba(255,255,255,.72);margin-top:4px;
+ text-transform:none!important;letter-spacing:0!important}}
+
+/* ---- next game + staleness: the two things a fan checks first ---- */
+.next{{display:flex;align-items:center;gap:18px;flex-wrap:wrap;background:{C['card']};
+ border:1px solid rgba(19,74,142,.10);border-left:5px solid {C['brand']};border-radius:12px;
+ padding:11px 16px;margin-bottom:12px;
+ box-shadow:0 1px 2px rgba(16,38,75,.04),0 6px 18px -12px rgba(16,38,75,.18)}}
+.nxwhen b{{display:block;font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+ color:{C['redtext']};font-weight:800}}
+.nxwhen span{{font-size:12.5px;color:{C['ink2']};font-variant-numeric:tabular-nums}}
+.nxmatch{{font-size:18px;font-weight:800;color:{C['navy']};letter-spacing:-.01em}}
+.nxodds{{margin-left:auto;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;
+ font-size:12.5px;font-variant-numeric:tabular-nums;font-weight:700}}
+.nxw{{color:{C['good']}}} .nxl{{color:{C['redtext']}}}
+.nxswing{{font-size:10.5px;color:{C['mute']};font-weight:700;letter-spacing:.04em}}
+.next.live{{border-left-color:{C['red']}}}
+.next.live .nxwhen b{{animation:pulse 1.6s ease-in-out infinite}}
+@keyframes pulse{{50%{{opacity:.45}}}}
+.stale{{background:#FFF4E5;border:1px solid #F1C88A;color:#7A4B00;border-radius:10px;
+ padding:10px 14px;font-size:12.5px;margin-bottom:12px;line-height:1.45}}
+.stale b{{color:#5C3800}}
+.ccap{{font-size:11.5px;color:{C['ink2']};margin-top:10px;min-height:17px}}
+.cday.game{{cursor:pointer}}
+.cday.game:focus-visible{{outline:2px solid {C['red']};outline-offset:1px}}
+@media(max-width:560px){{.next{{gap:10px;padding:10px 12px}} .nxmatch{{font-size:16px}}
+ .nxodds{{margin-left:0;width:100%;gap:10px}}}}
 .hdr .rec b{{font-size:34px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;display:block;line-height:1}}
 .hdr .rec div{{font-size:11px;color:rgba(255,255,255,.72);letter-spacing:.08em;
  text-transform:uppercase}}
@@ -1006,7 +1163,7 @@ html{{scroll-behavior:smooth}}
 .sos{{display:inline-block;min-width:42px;padding:2px 6px;border-radius:5px;
  font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;text-align:center}}
 .sosna{{color:{C['axis']}}}
-.facts{{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:13px}}
+.facts{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px;margin-top:13px}}
 .fact{{background:{C['card2']};border-radius:8px;padding:10px 11px}}
 .factv{{font-size:19px;font-weight:800;color:{C['navy']};line-height:1.1;
  font-variant-numeric:tabular-nums}}
@@ -1187,18 +1344,22 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
 <div class="hdr">
   <div>
     <h1>TORONTO <span>BLUE JAYS</span> — PLAYOFF TRACKER</h1>
-    <div class="stamp">Standings through {STAMP} · {R['nsim']:,} simulated seasons</div>
+    <div class="stamp">Standings through {STAMP} · {R['nsim']:,} simulated seasons
+      · <span id="updAgo" data-utc="{GENERATED_UTC}"></span></div>
     {verdict_html}
   </div>
   <div class="hdrright">
     <div class="rec">
       <b>{W}–{L}</b>
       <div>{div_pos} · {GL} games left</div>
+      {f'<div class="divline">{div_line}</div>' if div_line else ''}
     </div>
     {momentum_badge}
   </div>
 </div>
 
+<div class="stale" id="stale" role="status" hidden></div>
+{next_html}
 <nav class="snav" aria-label="Jump to section">{nav_html}</nav>
 
 <div class="panel" id="play">
@@ -1267,8 +1428,11 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
         <div class="factl">Next {NEXT_N} games</div>
         <div class="factn">{next_note}</div></div>
       <div class="fact"><div class="factv">{pass_v}</div>
-        <div class="factl">Clubs to pass</div>
+        <div class="factl">Rivals beaten out</div>
         <div class="factn">{pass_note}</div></div>
+      <div class="fact"><div class="factv">{line_v}</div>
+        <div class="factl">{line_l}</div>
+        <div class="factn">{line_note}</div></div>
     </div>
   </div>
 </div>
@@ -1367,6 +1531,7 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
 <div class="ms" id="calendar">
   <h2>The run-in <span class="sub">— every game left, shaded by how much it moves the odds</span></h2>
   <div class="cwrap">{cal_html}</div>
+  <div class="ccap" id="calCap" aria-live="polite">Tap any game for the odds either way.</div>
   <div class="cleg">
     <span>Lower leverage</span>
     <span class="clramp">{ramp_legend}</span>
@@ -1400,14 +1565,14 @@ call-ups.{synthetic_note} Data: MLB Stats API. Comparison odds: Baseball-Referen
 <div class="foot">
   <div class="byline">Built by <b>AV</b></div>
   <div class="footmeta">
-    Generated {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC ·
+    Generated <span id="genET" data-utc="{GENERATED_UTC}">{GENERATED_UTC.replace('T', ' ').rstrip('Z')} UTC</span> ·
     rebuilt automatically once every game has finished ·
     not affiliated with or endorsed by the Toronto Blue Jays or MLB
   </div>
 </div>
 
 </div>
-{INJ_JS}<script>window.__SIM__={SIMJSON};</script>
+{LIVE_JS}{INJ_JS}<script>window.__SIM__={SIMJSON};</script>
 <script>{APPJS}</script>
 </body></html>"""
 

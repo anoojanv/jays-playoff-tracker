@@ -62,6 +62,10 @@ def main():
     print("\n=== verify " + "=" * 54)
     verify(dst)
 
+    # the share card sits beside the page; best-effort, never fails the build
+    print("\n=== share card " + "=" * 50)
+    subprocess.run([sys.executable, "og_image.py", os.path.join(PUBLIC, "og.png")], cwd=HERE)
+
     d = json.load(open(os.path.join(ROOT, "build", "data.json")))
     r = json.load(open(os.path.join(HERE, "results.json")))
     j = d["AL"]["Blue Jays"]

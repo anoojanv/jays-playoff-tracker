@@ -37,11 +37,8 @@ HFA_ODDS = 1.15          # ~.535 home win% at even talent
 REG_PRIOR = 68.0         # games of .500 regression
 PYTH_WEIGHT = 0.80
 
-# Rivals the page tracks as the wild-card cluster. Kept here rather than duplicated in
-# sim.py and build_html.py so the prose and the numbers cannot drift apart.
-CLUSTER = ["Rangers", "Tigers", "Guardians", "Twins"]
-RIVALS = ["Rangers", "Tigers", "Guardians", "Twins", "Astros", "Mariners",
-          "Red Sox", "Yankees"]
+# How close a club has to be to Toronto, in games, to count as part of the race.
+CLUSTER_GB = 6.0
 
 STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sim_state.npz")
 
@@ -58,6 +55,45 @@ def log5(a, b):
 
 
 TEAMS = {**D.AL, **D.NL}
+
+
+# ---------------------------------------------------------------- who the race is against
+def _winpct(t):
+    w, l = D.AL[t][:2]
+    return w / (w + l) if w + l else 0.0
+
+
+def games_back(t):
+    """Games ahead of Toronto (positive) or behind (negative), from the standings."""
+    w, l = D.AL[t][:2]
+    jw, jl = D.AL[JAYS][:2]
+    return ((w - jw) + (jl - l)) / 2
+
+
+def contenders(max_gb=CLUSTER_GB):
+    """The clubs Toronto is actually racing, read off the standings on every build.
+
+    This used to be a list typed into the source in August: the same four clubs were
+    still being called "the cluster" in September when two of them were six games back
+    with no chance, and the club actually holding the last spot was not among them.
+
+    A club is in the cluster when it is not leading a division (leaders occupy the
+    automatic berths, so Toronto does not have to pass them) and sits within `max_gb`
+    games of Toronto in either direction. Two clubs is the floor: with fewer than that
+    within range, the nearest two are used so the page always has a race to describe.
+    """
+    leaders = {max(m, key=_winpct) for m in D.DIVISIONS.values()}
+    others = [t for t in D.AL if t != JAYS and t not in leaders]
+    near = [t for t in others if abs(games_back(t)) <= max_gb]
+    if len(near) < 2:
+        near = sorted(others, key=lambda t: abs(games_back(t)))[:2]
+    return sorted(near, key=_winpct, reverse=True)
+
+
+CLUSTER = contenders()
+# every other AL club: the page keeps whichever six actually move Toronto's odds most
+RIVALS = [t for t in D.AL if t != JAYS]
+
 talent = {}
 for _name, (_w, _l, _rs, _ra) in TEAMS.items():
     _g = _w + _l

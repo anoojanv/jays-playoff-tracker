@@ -113,7 +113,7 @@ def standings(league_id):
     return out
 
 
-def schedule(team_id, start, final_dates):
+def schedule(team_id, start, final_dates, times=None):
     url = (f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&teamId={team_id}"
            f"&startDate={start}&endDate={SEASON_END}")
     games = []
@@ -146,9 +146,14 @@ def schedule(team_id, start, final_dates):
             # rather than letting a miscounted schedule reach the page.
             if state in ("F", "C", "D"):
                 continue
-            games.append((d["date"],
-                          canon(g["teams"]["away"]["team"]["name"]),
-                          canon(g["teams"]["home"]["team"]["name"])))
+            key = (d["date"],
+                   canon(g["teams"]["away"]["team"]["name"]),
+                   canon(g["teams"]["home"]["team"]["name"]))
+            games.append(key)
+            # first pitch (UTC) and the game's state, so the page can say "tonight,
+            # 7:07 ET" or "underway" rather than just a date
+            if times is not None and g.get("gameDate"):
+                times["|".join(key)] = {"utc": g["gameDate"], "state": state}
     return games
 
 
@@ -327,32 +332,12 @@ def recent_form(team_id, today, days=45, limit=25):
 
 SITE_URL = os.environ.get("SITE_URL", "https://jays-playoff-tracker.netlify.app").rstrip("/")
 
-# One-time bootstrap for the day-over-day delta.
-#
-# The history lives in the published page, and the page that was live when this feature
-# shipped carried none — so the first day would have had nothing to compare against and
-# no delta at all. These four readings are transcribed from the build logs of the runs
-# that published those pages, in history.py's own encoding: epoch seconds, playoff odds
-# in tenths of a percent, momentum index.
-#
-#   2026-08-21 22:33 UTC   21.5%   +20        2026-08-22 20:32 UTC   17.0%   +13
-#   2026-08-22 01:44 UTC   21.2%   +20        2026-08-22 23:29 UTC   22.1%   +19
-#
-# It applies only when the live page has no history of its own, so it stops mattering as
-# soon as the first build with this feature publishes, and prune() drops the points once
-# they age out. Nothing needs to happen for it to expire; deleting it is tidying, not
-# maintenance.
-HISTORY_SEED = ("1787351599:215:20,1787363088:212:20,"
-                "1787430764:170:13,1787441348:221:19")
-
-
 def published_history():
     """The history carried by the page currently live, so this build can extend it.
 
     Best-effort in the same way as the injury report: if the live page cannot be read
-    the history falls back to HISTORY_SEED, and once that has aged out, to nothing at
-    all — which costs a day-over-day delta and nothing else. Never fatal: a page with
-    no delta is far better than no page.
+    there is no history, which costs a day-over-day delta and nothing else. Never
+    fatal: a page with no delta is far better than no page.
     """
     data = None
     try:
@@ -364,12 +349,12 @@ def published_history():
             data = r.read().decode("utf-8", "ignore")
     except Exception as e:
         print(f"  note: could not read the live page for history ({e})")
-        return HISTORY_SEED
+        return ""
     import re as _re
     m = _re.search(r'<meta name="page-history" content="([^"]*)"', data or "")
     if not m:
-        print("  note: live page carries no history yet — seeding from the build logs")
-        return HISTORY_SEED
+        print("  note: live page carries no history yet")
+        return ""
     pts = m.group(1).count(",") + 1 if m.group(1) else 0
     print(f"  history: {pts} previous readings carried forward")
     return m.group(1)
@@ -410,9 +395,9 @@ def main():
     print(f"  standings: {len(al)} AL, {len(nl)} NL teams")
 
     # union every AL club's remaining schedule; an AL-vs-AL game appears in both feeds
-    counter, final_dates = {}, set()
+    counter, final_dates, times = {}, set(), {}
     for tid in AL_IDS:
-        for g in schedule(tid, start, final_dates):
+        for g in schedule(tid, start, final_dates, times if tid == 141 else None):
             counter[g] = counter.get(g, 0) + 1
     games = []
     for (date, away, home), n in counter.items():
@@ -469,6 +454,7 @@ def main():
         "AL": {k: [v["w"], v["l"], v["rs"], v["ra"]] for k, v in al.items()},
         "NL": {k: [v["w"], v["l"], v["rs"], v["ra"]] for k, v in nl.items()},
         "DIVISIONS": DIVISIONS, "GAMES": games, "BREF": bref_odds(),
+        "TIMES": times,
         "INJURIES": injuries(),
         "RECENT": recent_form(141, today),
         "HISTORY": published_history(),

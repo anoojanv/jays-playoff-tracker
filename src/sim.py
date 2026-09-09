@@ -100,23 +100,70 @@ for s in series:
         "exp_wins": float(swins.mean()),
         "cond": conds,
         "swing": (sweep_hi - sweep_lo) if (sweep_hi is not None and sweep_lo is not None) else None,
-        "is_rival": s["opp"] in RIVALS + ["Orioles"],
+        "is_rival": s["opp"] in CLUSTER,
     })
 
 # how many of the Jays' remaining games are against the wild-card cluster
 out["cluster_games"] = int(sum(len(s["ix"]) for s in series if s["opp"] in CLUSTER))
 
-# per-game leverage: P(in | win) - P(in | loss)
+# per-game leverage: P(in | win) - P(in | loss), plus which series the game belongs to
+# so the page can dedupe by series rather than by opponent-and-month
+_series_of = {}
+for si, s in enumerate(series):
+    for k in s["ix"]:
+        _series_of[k] = si
 lev = []
 for k, i in enumerate(jays_game_ix):
     date, a, h = games[i]
     opp = a if h == JAYS else h
     w = jays_won[k]
+    p_w = float(jays_in[w].mean()) if w.any() else 0.0
+    p_l = float(jays_in[~w].mean()) if (~w).any() else 0.0
     lev.append({
-        "date": date, "opp": opp, "home": (h == JAYS),
-        "leverage": float(jays_in[w].mean() - jays_in[~w].mean()),
+        "date": date, "opp": opp, "home": (h == JAYS), "series": _series_of[k],
+        "p_win": p_w, "p_loss": p_l, "leverage": p_w - p_l,
     })
 out["leverage"] = lev
+
+# the next game, with first pitch and game state when the feed supplied them
+if lev:
+    _date, _a, _h = games[jays_game_ix[0]]
+    _t = D.TIMES.get(f"{_date}|{_a}|{_h}") or {}
+    out["next_game"] = dict(lev[0], utc=_t.get("utc"), state=_t.get("state"),
+                            opp_record=f"{TEAMS[lev[0]['opp']][0]}-{TEAMS[lev[0]['opp']][1]}")
+else:
+    out["next_game"] = None
+
+# ---------------------------------------------------------------- the fan's numbers
+# Magic and tragic numbers as fans actually quote them: 163 minus one club's wins minus
+# the other's losses, against the specific club on the other side of the line. Read off
+# the standings, not the simulation, so they agree with every broadcast.
+_pct = {t: model._winpct(t) for t in AL_TEAMS}
+_leaders = {max(m, key=lambda t: _pct[t]) for m in D.DIVISIONS.values()}
+_own_div = next(d for d, m in D.DIVISIONS.items() if JAYS in m)
+_div_order = sorted(D.DIVISIONS[_own_div], key=lambda t: _pct[t], reverse=True)
+_wc_order = [t for t in sorted(AL_TEAMS, key=lambda t: _pct[t], reverse=True)
+             if t not in _leaders]
+JW, JL = D.AL[JAYS][:2]
+if JAYS in _leaders:
+    _vs = _div_order[1]
+    out["line"] = {"mode": "magic", "vs": _vs, "n": max(0, 163 - JW - D.AL[_vs][1]),
+                   "what": f"to clinch the {_own_div}"}
+elif JAYS in _wc_order[:3]:
+    _vs = _wc_order[3]
+    out["line"] = {"mode": "magic", "vs": _vs, "n": max(0, 163 - JW - D.AL[_vs][1]),
+                   "what": "to finish ahead of the first club out"}
+else:
+    _vs = _wc_order[2]
+    out["line"] = {"mode": "tragic", "vs": _vs, "n": max(0, 163 - D.AL[_vs][0] - JL),
+                   "what": "before the last wild card is out of reach"}
+_lead = _div_order[0]
+out["division"] = {
+    "name": _own_div, "leader": _lead, "rank": _div_order.index(JAYS) + 1,
+    "gb": max(0.0, model.games_back(_lead)) if _lead != JAYS else 0.0,
+    "lead_by": (model.games_back(_div_order[1]) * -1) if _lead == JAYS else 0.0,
+    "odds": out["odds"]["division"],
+}
 
 # rival-dependency: how much Jays odds move on a rival's finish
 dep = {}

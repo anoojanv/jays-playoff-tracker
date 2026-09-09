@@ -88,8 +88,15 @@ decent headroom. If you ever get close, the lever is the polling window in
 `.github/workflows/nightly.yml` — narrow the hours before you lengthen the interval,
 since most games finish late.
 
-Bear in mind GitHub's scheduler is best-effort: **delays of 5 to 30 minutes are common**
-at peak times. So "within 30 minutes of a game ending" is realistically 30-60.
+Bear in mind GitHub's scheduler is best-effort, and in practice it is a lot worse than
+"best-effort" sounds. **Over Sep 1–8, 2026 it fired 4 to 6 of the 21 scheduled ticks a
+day**, and the ones it did fire ran hours late. So "within 30 minutes of a game ending"
+is really "some time in the next few hours, or when someone re-runs the workflow by
+hand". The page says how old it is (top right of the header, in Eastern time) and shows a
+warning once it is more than 30 hours old, so at least a stale number is never mistaken
+for a fresh one. Fixing the cadence properly means either moving the refresh into the
+browser (the page already runs the whole simulation there) or triggering the workflow
+from a scheduler that actually fires; both are open.
 
 ---
 
@@ -105,6 +112,7 @@ at peak times. So "within 30 minutes of a game ending" is realistically 30-60.
 | `src/analyze.py` | Per-series requirements and leverage |
 | `src/export_sim.py` | ~9 KB model bundle for the in-browser simulator |
 | `src/build_html.py` | Renders the page |
+| `src/og_image.py` | The 1200×630 share card that `og:image` points at, so a pasted link shows the odds. Best-effort: never fails a build |
 | `src/build.py` | Runs all of the above, then verifies the output before it can be published |
 
 The build fails — and publishes nothing — if the schedule doesn't reconcile, if the page
@@ -128,14 +136,34 @@ hours old is not passed off as "since yesterday", and a fresh page shows nothing
 than a fabricated zero. Readings closer together than half an hour collapse into one, so
 the tag cannot grow without bound and a rebuild of unchanged data is idempotent.
 
-If the live page cannot be read, the history falls back to `HISTORY_SEED` in
-`src/fetch_data.py` and, once those points age out, to nothing at all — that costs a delta
-and nothing else; it can never fail a build.
+If the live page cannot be read there is no history — that costs a delta and nothing
+else; it can never fail a build.
 
-`HISTORY_SEED` is a one-time bootstrap: the page that was live when this shipped carried no
-history, so four readings were transcribed out of the build logs that published it. It is
-used only when the live page has none of its own, which stopped being true with the first
-build after this merged. It expires on its own — deleting it is tidying, not maintenance.
+## Who the race is against
+
+The clubs the page calls the cluster — the "Rivals beaten out" figure, the must-see
+reasons, the `is_rival` flag on each series — are read off the standings on every build:
+every club that is not leading a division and sits within `CLUSTER_GB` games (six) of
+Toronto in either direction. This used to be a list typed into `src/model.py` in August,
+and by September it was still naming two clubs that were out of it while missing the one
+holding the last spot. Scoreboard Watching considers every other AL club and shows the six
+whose finish moves Toronto's odds the most, so an irrelevant club falls out on its own.
+
+## The next game, and how old the page is
+
+The header carries the next game — opponent, first pitch in Eastern time, and the odds
+after a win and after a loss — and a stamp saying how long ago the page was rebuilt. Both
+are rendered by the browser from UTC timestamps in the page, so the build stays
+self-contained and nothing is fetched. The strip says *tonight*, *tomorrow*, *underway*
+(when the feed marked the game in progress, or first pitch was less than four hours ago)
+or *played · odds update after the next rebuild*, and a warning appears above it once the
+page is more than 30 hours old.
+
+Magic and tragic numbers are the ones fans actually quote — 163 minus one club's wins
+minus the other's losses — against the specific club on the other side of the line: the
+division runner-up when Toronto leads, the first club out when Toronto holds a wild card,
+the club holding the last wild card otherwise. They come from the standings, not the
+simulation, so they agree with every broadcast.
 
 ## Strength of schedule
 
@@ -214,6 +242,7 @@ games-played to 162 minus what it has left, so it reconciles by construction.
 python src/selftest_fetch.py    # the MLB fetch, with the network mocked
 python src/selftest_check.py    # the polling decision, all six paths
 python tests/test_momentum.py   # the momentum rating's semantics
+python tests/test_rivals.py     # the rival lists follow the standings
 python tests/test_sos.py        # strength of schedule, and that it matches the sim
 python tests/test_history.py    # the day-over-day deltas and the page's own history
 python tests/test_reconcile.py  # the 162-game check, over- and under-count
@@ -289,7 +318,8 @@ updated; re-run it and commit the result.
 
 ## Notes
 
-- Ties are broken at random rather than by head-to-head record.
+- Ties are broken at random rather than by head-to-head record. With a handful of games
+  left that is a real limitation, not a footnote.
 - The model knows run differential. It does not know about injuries, rotations, or
   September call-ups.
 - Not affiliated with or endorsed by the Toronto Blue Jays or MLB.
