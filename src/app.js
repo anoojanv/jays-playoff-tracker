@@ -10,6 +10,121 @@
      - the scoreboard hot/cold toggles bias a rival's remaining games
    The whole scenario round-trips through the URL hash, so it can be shared. */
 
+/* Manual refresh. The page is static, so "refresh" means asking GitHub Actions to run
+   the pipeline now: POST /api/refresh (a Netlify function holding the token — see
+   netlify/functions/refresh.mjs) dispatches it, GET polls the run, and when the run
+   finishes the page re-reads ITSELF and compares the data-fingerprint meta — the same
+   "the published page is its own state file" trick the nightly poll uses — so it
+   reloads only when the data actually changed, and says so plainly when it did not.
+   Same-origin, no token in the browser, and nothing stored on the client. */
+(function () {
+  "use strict";
+  var btn = document.getElementById("refreshBtn"), msg = document.getElementById("refreshMsg");
+  if (!btn || !msg) return;
+  var POLL_MS = 8000, START_GRACE_MS = 90000, RUN_TIMEOUT_MS = 6 * 60000;
+  var mine = document.querySelector('meta[name="data-fingerprint"]');
+  var myFp = mine ? mine.getAttribute("content") : "";
+  var timer = null;
+
+  function say(text, tone) {
+    msg.textContent = text;
+    msg.className = "rfmsg" + (tone ? " " + tone : "");
+  }
+  function busy(on) {
+    btn.disabled = on;
+    btn.classList.toggle("spin", on);
+  }
+  function minutes(sec) { return Math.max(1, Math.ceil(sec / 60)); }
+
+  function api(method) {
+    return fetch("/api/refresh", { method: method, cache: "no-store",
+                                   headers: { accept: "application/json" } })
+      .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); });
+  }
+
+  // did the rebuild publish something new? read the live page and compare fingerprints
+  function settle() {
+    return fetch(location.pathname + "?r=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var m = /<meta name="data-fingerprint" content="([^"]*)"/.exec(html);
+        if (m && m[1] && m[1] !== myFp) {
+          say("New results are in — reloading…", "ok");
+          setTimeout(function () { location.reload(); }, 600);
+        } else {
+          say("Already up to date — nothing has finished since the last publish.", "ok");
+          busy(false);
+        }
+      }, function () {
+        say("Rebuilt — reload the page to see it.", "ok");
+        busy(false);
+      });
+  }
+
+  function watch(afterId, t0) {
+    timer = setInterval(function () {
+      var elapsed = Date.now() - t0;
+      api("GET").then(function (r) {
+        var run = r.body && r.body.run;
+        var ours = run && run.id > afterId;
+        if (!ours) {
+          if (elapsed > START_GRACE_MS) {
+            stop(); say("GitHub has not picked it up yet — check back in a minute.", "");
+          }
+          return;
+        }
+        if (run.status !== "completed") {
+          if (elapsed > RUN_TIMEOUT_MS) {
+            stop(); say("Still running — the page will update on its own when it finishes.", "");
+          } else {
+            say("Rebuilding… (usually 1–3 minutes)", "");
+          }
+          return;
+        }
+        stop();
+        if (run.conclusion === "success") settle();
+        else { say("The rebuild failed — the last good page stays up.", "bad"); busy(false); }
+      }, function () { /* one bad poll is not a verdict; try again next tick */ });
+    }, POLL_MS);
+  }
+
+  function stop() {
+    if (timer) clearInterval(timer);
+    timer = null;
+    busy(false);
+  }
+
+  btn.addEventListener("click", function () {
+    if (btn.disabled) return;
+    busy(true);
+    say("Asking GitHub to check for new results…", "");
+    api("POST").then(function (r) {
+      var b = r.body || {};
+      if (r.status === 202) {
+        busy(true);
+        say("Checking MLB for new results…", "");
+        watch(b.after_id || 0, Date.now());
+      } else if (r.status === 200 && b.state === "running") {
+        busy(true);
+        say("A refresh is already running — waiting for it…", "");
+        watch((b.run && b.run.id - 1) || 0, Date.now());
+      } else if (r.status === 429) {
+        busy(false);
+        say((b.message || "Checked recently.") + " Try again in " + minutes(b.retry_after_sec || 60) + " min.", "");
+      } else if (r.status === 503) {
+        busy(false);
+        say("Manual refresh is not set up on this site yet.", "bad");
+      } else {
+        busy(false);
+        say(b.message || "Could not start a refresh.", "bad");
+      }
+    }, function () {
+      busy(false);
+      say("Refresh needs the live site — it cannot run from a local copy.", "bad");
+    });
+  });
+})();
+
 /* Sticky-nav scrollspy: highlight the section currently on screen. Independent of the
    simulator so it still runs if the sim data is ever missing. */
 (function () {

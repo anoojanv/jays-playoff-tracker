@@ -57,6 +57,31 @@ reload the site.
 
 That's it. From then on it runs itself.
 
+### 5. (Optional) The Refresh button
+
+The header has a **Refresh** button that asks GitHub to check MLB for finished games right
+now, instead of waiting for the next scheduled poll. The page is static, so the button
+cannot fetch anything itself: it calls a tiny Netlify function (`netlify/functions/refresh.mjs`)
+that holds a GitHub token and dispatches the same workflow the schedule runs. Until the
+token is set the button simply says it is not set up — the page never depends on it.
+
+1. GitHub → **Settings** → **Developer settings** → **Personal access tokens** →
+   **Fine-grained tokens** → **Generate new token**. Repository access: *only this
+   repository*. Permissions: **Actions — Read and write** (Metadata comes along
+   automatically). Set an expiry you will remember.
+2. Netlify → your site → **Site configuration** → **Environment variables** → add
+   `GITHUB_DISPATCH_TOKEN` with that token. (If the site ever publishes a different
+   repo or branch, `GITHUB_REPO` and `GITHUB_DISPATCH_REF` override the defaults.)
+3. The next deploy picks it up — or trigger one from the Actions tab.
+
+What a click does: nothing while a run is already queued or in progress, nothing within
+ten minutes of the previous run (whoever started it), and otherwise a dispatch with
+`only_if_changed` set, so it runs the cheap standings check and rebuilds only if a game
+has actually finished — a click when nothing has changed costs seconds, not minutes. The
+page then polls the run and, when it finishes, re-reads itself and compares the
+`data-fingerprint` meta tag: new data reloads the page, unchanged data says so. The
+cooldown is `COOLDOWN_MIN` in the function.
+
 ### How often it updates
 
 It polls **every 30 minutes from 4pm to 2am Eastern** — the window in which games
@@ -218,6 +243,7 @@ python tests/test_sos.py        # strength of schedule, and that it matches the 
 python tests/test_history.py    # the day-over-day deltas and the page's own history
 python tests/test_reconcile.py  # the 162-game check, over- and under-count
 python tests/test_gameover.py   # a game still in "Game Over", both sides of the race
+node   tests/test_refresh.mjs   # the Refresh button's endpoint: every guard, GitHub mocked
 python tests/test_endgame.py    # the page still builds once the race is decided
 python tests/make_fixture.py    # rebuild the fixture (must be byte-identical; CI checks)
 ```
@@ -277,6 +303,10 @@ its markup the pill just disappears; the build still succeeds. Fix the regex in
 `bref_odds()` if you want it back.
 
 **Deploy step fails with "NETLIFY_AUTH_TOKEN is not set"** — step 3 above.
+
+**Refresh button says "not set up"** — step 5 above: the Netlify site has no
+`GITHUB_DISPATCH_TOKEN`. **"Could not start a refresh"** with a GitHub HTTP code means the
+token expired or lost its Actions permission; mint a new one.
 
 **"SEASON COMPLETE: no games remain"** — the season is over, so there is nothing left to
 simulate. The build stops on purpose rather than crashing partway through. Disable the
