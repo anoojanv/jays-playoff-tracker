@@ -48,6 +48,9 @@ jobs:
       - name: Polling decision, every path
         run: python src/selftest_check.py
 
+      - name: The Refresh button's endpoint, GitHub mocked
+        run: node tests/test_refresh.mjs
+
       - name: Day-over-day history and deltas
         run: python tests/test_history.py
 
