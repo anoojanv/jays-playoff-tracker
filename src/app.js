@@ -163,6 +163,13 @@
 
   // scratch buffers reused across every simulation
   var wins = new Int32Array(NT), score = new Float64Array(NT), isDW = new Uint8Array(NT);
+  /* Seeding scratch. MLB's format: the three division winners take seeds 1-3 by record,
+     the three wild cards 4-6 — a 100-win wild card still seeds behind an 85-win division
+     winner. Seeds 1 and 2 sit out the Wild Card round; 3 hosts 6 and 4 hosts 5. */
+  var seat = new Int32Array(6), dwList = new Int32Array(3);
+  var seedCt = new Float64Array(7), oppCt = new Float64Array(NT + 1);
+  var slotCt = new Float64Array(6 * NT);
+  var WC_OPP_ROW = [-1, -1, 5, 4, 3, 2];       // seed index -> opponent's seed index
   var teamIn = new Float64Array(NT), locked = new Int8Array(D.nJaysGames);
   var pick = new Int8Array(8);
 
@@ -217,6 +224,7 @@
 
     var inCount = 0, jaysWinSum = 0, cutSum = 0;
     for (t = 0; t < NT; t++) teamIn[t] = 0;
+    seedCt.fill(0); oppCt.fill(0); slotCt.fill(0);
 
     for (var it = 0; it < nsim; it++) {
       for (i = 0; i < locked.length; i++) locked[i] = -1;
@@ -257,14 +265,78 @@
       }
       for (t = 0; t < NT; t++) if (isDW[t] || t === w1 || t === w2 || t === w3) teamIn[t]++;
       if (w3 >= 0) cutSum += wins[w3];
-      if (isDW[J] || J === w1 || J === w2 || J === w3) inCount++;
+      var jaysIn = isDW[J] || J === w1 || J === w2 || J === w3;
+      if (jaysIn) inCount++;
       jaysWinSum += wins[J];
+
+      /* Seed the field, but only when Toronto is in it — the bracket is conditional on
+         qualifying and there is nothing to show in the seasons where they miss. */
+      if (jaysIn) {
+        var nd = 0;
+        for (t = 0; t < NT && nd < 3; t++) if (isDW[t]) dwList[nd++] = t;
+        // three elements: an insertion sort by score, descending
+        for (i = 1; i < 3; i++) {
+          var key = dwList[i], jj = i - 1;
+          while (jj >= 0 && score[dwList[jj]] < score[key]) { dwList[jj + 1] = dwList[jj]; jj--; }
+          dwList[jj + 1] = key;
+        }
+        seat[0] = dwList[0]; seat[1] = dwList[1]; seat[2] = dwList[2];
+        seat[3] = w1; seat[4] = w2; seat[5] = w3;     // already ordered by score
+        var js = 0;
+        for (i = 0; i < 6; i++) {
+          slotCt[i * NT + seat[i]]++;
+          if (seat[i] === J) js = i;
+        }
+        seedCt[js + 1]++;
+        var orow = WC_OPP_ROW[js];
+        oppCt[orow < 0 ? NT : seat[orow]]++;          // index NT means a bye
+      }
     }
 
     var odds = new Float64Array(NT);
     for (t = 0; t < NT; t++) odds[t] = teamIn[t] / nsim;
     return { odds: inCount / nsim, teamOdds: odds, meanWins: jaysWinSum / nsim,
-             cut: cutSum / nsim, nsim: nsim };
+             cut: cutSum / nsim, nsim: nsim,
+             bracket: inCount ? readBracket(inCount) : null };
+  }
+
+  /* Turn the seeding tallies into the shape the bracket renders from. Everything is a
+     share of the seasons Toronto QUALIFIED in, not of all seasons. */
+  function readBracket(nIn) {
+    var k, t, best = 1;
+    var seed = new Array(7).fill(0);
+    for (k = 1; k <= 6; k++) {
+      seed[k] = seedCt[k] / nIn;
+      if (seedCt[k] > seedCt[best]) best = k;
+    }
+    var opp = [], oi;
+    for (oi = 0; oi <= NT; oi++) {
+      if (oppCt[oi]) opp.push({ team: oi === NT ? null : oi, p: oppCt[oi] / nIn });
+    }
+    opp.sort(function (a, b) { return b.p - a.p; });
+
+    // Toronto is pinned to its likeliest seed; every other slot shows the likeliest club
+    // that is NOT Toronto, so the six slots read as one coherent bracket.
+    var slots = {};
+    for (k = 1; k <= 6; k++) {
+      var rows = [];
+      for (t = 0; t < NT; t++) {
+        var c = slotCt[(k - 1) * NT + t];
+        if (c) rows.push({ team: t, p: c / nIn });
+      }
+      rows.sort(function (a, b) { return b.p - a.p; });
+      if (k === best) {
+        var mine = rows.filter(function (r) { return r.team === J; });
+        rows = (mine.length ? mine : [{ team: J, p: 0 }])
+          .concat(rows.filter(function (r) { return r.team !== J; }));
+      } else {
+        rows = rows.filter(function (r) { return r.team !== J; });
+      }
+      slots[k] = rows;
+    }
+    var bye = seed[1] + seed[2];
+    return { seed: seed, bestSeed: best, opponent: opp, slots: slots,
+             pBye: bye, pHost: seed[3] + seed[4] };
   }
 
   /* ---------------------------------------------------------------- state ---- */
@@ -403,10 +475,55 @@
       paintSlider();
     }
 
+    if (!opts.fast) paintBracket(r.bracket);
+
     var perf = el("perfNote");
     if (perf) perf.textContent = r.nsim.toLocaleString() + " seasons · " + ms.toFixed(0) + " ms";
 
     if (!opts.fast) writeHash();
+  }
+
+  /* ---------------------------------------------------------------- bracket ----
+     Re-drawn on every recompute, so locking a series or forcing a rival cold changes who
+     Toronto would meet in October, not just whether they get there. */
+  function ordinal(n) {
+    var s = ["th", "st", "nd", "rd"], v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
+
+  function paintBracket(bk) {
+    var head = el("bkHead");
+    if (!head) return;
+    var seats = document.querySelectorAll("[data-slot]");
+    if (!bk) {                       // eliminated in every simulated season
+      head.textContent = "No qualifying seasons left to draw a bracket from.";
+      for (var z = 0; z < seats.length; z++) {
+        seats[z].classList.remove("you");
+        seats[z].querySelector("[data-bk-team]").textContent = "—";
+        seats[z].querySelector("[data-bk-p]").textContent = "";
+      }
+      return;
+    }
+    for (var i = 0; i < seats.length; i++) {
+      var k = +seats[i].dataset.slot, rows = bk.slots[k] || [];
+      var top = rows[0];
+      seats[i].classList.toggle("you", !!top && top.team === J);
+      seats[i].querySelector("[data-bk-team]").textContent =
+        top ? D.abbr[top.team] : "—";
+      seats[i].querySelector("[data-bk-p]").textContent =
+        top ? Math.round(top.p * 100) + "%" : "";
+    }
+    var best = bk.bestSeed, opp = bk.opponent[0];
+    if (opp && opp.team === null) {
+      head.innerHTML = "Most likely the <b>" + ordinal(best) +
+        " seed</b> — <b>a bye</b> straight to the Division Series";
+    } else if (opp) {
+      head.innerHTML = "Most likely the <b>" + ordinal(best) + " seed</b>, " +
+        (best >= 5 ? "at" : "hosting") + " <b>the " + D.teams[opp.team] +
+        "</b> in the Wild Card round";
+    } else {
+      head.textContent = "Seeding is still wide open";
+    }
   }
 
   /* ------------------------------------------------------------ share the scenario ----
@@ -432,8 +549,6 @@
       history.replaceState(null, "", h ? "#" + h
                                        : location.pathname + location.search);
     }
-    var sb = el("shareBtn");
-    if (sb) sb.hidden = !h;
   }
 
   function readHash() {
@@ -521,23 +636,43 @@
   });
 
   /* ---------------------------------------------------------------- share ---- */
+  /* One control, not two. It shares the scenario when one is set and the page otherwise,
+     and it leads with the NUMBER rather than a bare link — Slack and SMS often do not
+     render the preview card, and a naked URL is not a reason to tap. Uses the native
+     share sheet where there is one, which on a phone is the difference between one tap to
+     iMessage and a string somebody has to paste. */
   var shareBtn = el("shareBtn");
   if (shareBtn) {
+    var shareHTML = shareBtn.innerHTML;
+    var flash = function (text) {
+      shareBtn.textContent = text;
+      shareBtn.disabled = true;
+      setTimeout(function () {
+        shareBtn.innerHTML = shareHTML;
+        shareBtn.disabled = false;
+      }, 1700);
+    };
     shareBtn.addEventListener("click", function () {
       var url = location.href;
-      var done = function () {
-        shareBtn.textContent = "Link copied ✓";
-        shareBtn.disabled = true;
-        setTimeout(function () {
-          shareBtn.textContent = "Copy link to this scenario";
-          shareBtn.disabled = false;
-        }, 1600);
-      };
-      var fallback = function () { window.prompt("Copy this link:", url); };
+      var pct = (lastOdds * 100).toFixed(1);
+      var scen = location.hash.length > 1;
+      var text = scen
+        ? "Blue Jays " + pct + "% to make the playoffs in this scenario ("
+          + (baseline * 100).toFixed(1) + "% as things stand)"
+        : "Blue Jays " + pct + "% to make the playoffs";
+      if (navigator.share) {
+        navigator.share({ title: "Blue Jays Playoff Tracker", text: text, url: url })
+          .then(function () { flash("Shared ✓"); },
+                function () { /* the sheet was dismissed: say nothing */ });
+        return;
+      }
+      var copy = text + " — " + url;
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(url).then(done, fallback);
+        navigator.clipboard.writeText(copy).then(
+          function () { flash("Copied ✓"); },
+          function () { window.prompt("Copy this:", copy); });
       } else {
-        fallback();
+        window.prompt("Copy this:", copy);
       }
     });
   }

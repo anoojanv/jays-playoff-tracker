@@ -192,6 +192,47 @@ division runner-up when Toronto leads, the first club out when Toronto holds a w
 the club holding the last wild card otherwise. They come from the standings, not the
 simulation, so they agree with every broadcast.
 
+## How the odds got here
+
+The page has carried its own readings in a `page-history` meta tag for weeks, and showed
+nothing but a day-over-day chip. The chart plots all of them — 61 rebuilds over 12 days in
+the build that shipped it, from a 12% low to a 49% high. No database and no request: it is
+the same tag the delta already used, drawn by `history.sparkline()` in `src/history.py`,
+which is where the readings live and where it can be tested without running a build.
+
+It draws nothing at all when there are fewer than four readings or they span less than 18
+hours. A brand-new page has one point, and two points a few hours apart is not a trend.
+
+## Sharing
+
+One control in the header, beside Refresh. It shares the scenario when one is set and the
+page otherwise, and it leads with the number — "Blue Jays 39.2% to make the playoffs" —
+rather than a bare link, because Slack and SMS often do not render the preview card and a
+naked URL is not a reason to tap. It uses the native share sheet via `navigator.share`
+where there is one, which on a phone is the difference between one tap to iMessage and a
+string somebody has to paste, and falls back to the clipboard and then to a prompt.
+
+## If they get in
+
+The simulation always built the full playoff field and threw the seeding away, so the page
+could say "39% to reach the playoffs" and nothing about what reaching them looks like.
+
+The bracket seeds the AL the way MLB actually does it: the three division winners take
+seeds 1–3 **by record**, the three wild cards take 4–6, so a 100-win wild card still seeds
+behind an 85-win division winner. Seeds 1 and 2 sit out the Wild Card round; 3 hosts 6 and
+4 hosts 5, and the winners meet the byes in the Division Series.
+
+Every number in it is conditional on Toronto qualifying, which the section says plainly,
+because most of the time none of it happens. Each seat shows the club that lands there
+most often in the seasons where they do qualify, and Toronto is pinned to its own likeliest
+seed so the six seats read as one coherent bracket rather than six independent modal
+answers that may not fit together.
+
+It is **dynamic**: the browser simulator seeds the field too, so locking a series or
+forcing a rival hot changes who Toronto would meet in October, not just whether they get
+there. `model.bracket()` and the `readBracket()` in `src/app.js` implement the same rules,
+and `tests/test_bracket.py` pins them.
+
 ## Around the league
 
 Scoreboard watching, at the level a fan can act on. Every remaining game Toronto is *not*
@@ -298,6 +339,7 @@ python src/selftest_check.py    # the polling decision, all six paths
 python tests/test_momentum.py   # the momentum rating's semantics
 python tests/test_rivals.py     # the rival lists follow the standings
 python tests/test_spoiler.py    # scoring the games Toronto is not playing
+python tests/test_bracket.py    # seeding the AL field, and who Toronto plays
 python tests/test_sos.py        # strength of schedule, and that it matches the sim
 python tests/test_history.py    # the day-over-day deltas and the page's own history
 python tests/test_reconcile.py  # the 162-game check, over- and under-count

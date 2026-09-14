@@ -19,6 +19,7 @@ Encoding is deliberately compact and regex-friendly, since it lives in a meta ta
   odds      playoff odds in tenths of a percent (663 = 66.3%)
   momentum  the momentum index, or empty when there was none to measure
 """
+import datetime
 import re
 
 TAG = "page-history"
@@ -113,3 +114,72 @@ def delta(points, now, odds, momentum, hours=24):
         "age_hours": (now - t) / 3600.0,
         "prev_odds": prev_odds / 1000.0,
     }
+
+
+# ---------------------------------------------------------------- drawing it
+MIN_POINTS = 4
+MIN_SPAN_S = 18 * 3600
+
+
+def sparkline(points, C, w=660, h=150):
+    """The odds over time, as an SVG, plus a sentence about what it shows.
+
+    Returns ("", "") when the history is too short or too narrow to mean anything — a
+    brand-new page has one reading, and two points hours apart is not a trend. Drawing
+    something there would be inventing a story out of a single build.
+    """
+    pts = [(t, o / 1000.0) for t, o, _m in points]
+    if len(pts) < MIN_POINTS or (pts[-1][0] - pts[0][0]) < MIN_SPAN_S:
+        return "", ""
+
+    l, r, top, bot = 34, 12, 14, 22
+    t0, t1 = pts[0][0], pts[-1][0]
+    span = (t1 - t0) or 1
+    x = lambda t: l + (t - t0) / span * (w - l - r)
+    y = lambda v: top + (1 - v) * (h - top - bot)
+
+    line = " ".join(f"{x(t):.1f},{y(v):.1f}" for t, v in pts)
+    area = f"{x(t0):.1f},{y(0):.1f} " + line + f" {x(t1):.1f},{y(0):.1f}"
+
+    grid = ""
+    for g in (0, .25, .5, .75, 1.0):
+        gy = y(g)
+        grid += (f'<line x1="{l}" x2="{w-r}" y1="{gy:.1f}" y2="{gy:.1f}" '
+                 f'stroke="{C["grid"]}" stroke-width="1"/>'
+                 f'<text x="{l-7}" y="{gy+3.5:.1f}" text-anchor="end" font-size="9" '
+                 f'fill="{C["mute"]}" style="font-variant-numeric:tabular-nums">'
+                 f'{int(g*100)}%</text>')
+
+    days, seen = "", set()
+    for t, _v in pts:
+        d = datetime.datetime.fromtimestamp(t, datetime.timezone.utc).date()
+        if d in seen or d.day % 3:
+            continue
+        seen.add(d)
+        days += (f'<text x="{x(t):.1f}" y="{h-6}" text-anchor="middle" font-size="9" '
+                 f'fill="{C["mute"]}">{d.strftime("%b %-d")}</text>')
+
+    hi = max(pts, key=lambda p: p[1])
+    lo = min(pts, key=lambda p: p[1])
+    marks = ""
+    for pt, lab, dy in ((hi, "high", -9), (lo, "low", 15)):
+        marks += (f'<circle cx="{x(pt[0]):.1f}" cy="{y(pt[1]):.1f}" r="3" '
+                  f'fill="{C["mute"]}"/>'
+                  f'<text x="{x(pt[0]):.1f}" y="{y(pt[1])+dy:.1f}" text-anchor="middle" '
+                  f'font-size="9.5" font-weight="700" fill="{C["ink2"]}" stroke="#fff" '
+                  f'stroke-width="3" paint-order="stroke">{pt[1]*100:.0f}% {lab}</text>')
+    last = pts[-1]
+    marks += (f'<circle cx="{x(last[0]):.1f}" cy="{y(last[1]):.1f}" r="4.5" '
+              f'fill="{C["red"]}" stroke="#fff" stroke-width="2"/>')
+
+    days_span = span / 86400
+    svg = (f'<svg viewBox="0 0 {w} {h}" width="100%" role="img" '
+           f'aria-label="Playoff odds over the last {days_span:.0f} days">'
+           f'{grid}<polygon points="{area}" fill="{C["blue"]}" opacity="0.12"/>'
+           f'<polyline points="{line}" fill="none" stroke="{C["blue"]}" stroke-width="2" '
+           f'stroke-linejoin="round" stroke-linecap="round"/>{marks}{days}</svg>')
+    note = (f"{len(pts)} rebuilds over {days_span:.0f} days, a "
+            f"<b>{(hi[1]-lo[1])*100:.0f}-point</b> range between the high and the low. "
+            f"Every point is a published build; the page carries its own history in a meta "
+            f"tag, so this needs no database and no request.")
+    return svg, note

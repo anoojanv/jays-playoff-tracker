@@ -291,6 +291,92 @@ def around_the_league(st, live_lo=0.05, live_hi=0.98):
     return out
 
 
+# MLB's current format: the three division winners take seeds 1-3 by record, the three
+# wild cards take 4-6 — a 100-win wild card still seeds behind an 85-win division winner.
+# Seeds 1 and 2 sit out the Wild Card round; 3 hosts 6 and 4 hosts 5, best of three, and
+# the winners meet the byes in the Division Series (1 plays the 4/5 winner, 2 plays 3/6).
+WC_OPPONENT = {3: 6, 6: 3, 4: 5, 5: 4}
+BYE_SEEDS = (1, 2)
+
+
+def seeds_of(st):
+    """Team index occupying each AL seed, as a (6, NSIM) array: row k is seed k+1."""
+    neg = -np.inf
+    dw = np.argsort(-np.where(st.div_winner, st.score, neg), axis=0)[:3]
+    wc = np.argsort(-np.where(st.wc, st.score, neg), axis=0)[:3]
+    return np.vstack([dw, wc])
+
+
+def bracket(st, per_slot=4):
+    """Where Toronto lands and who they play, GIVEN that they qualify.
+
+    Everything here is conditional on making the field — the page says so plainly,
+    because 39% of the time none of it happens. Read off the same simulated seasons as
+    the headline number, so the bracket cannot tell a different story from the odds.
+
+    Returns None when nothing qualifies (a club already eliminated), which is the case
+    that used to kill the build every September.
+    """
+    jays_in = st.jays_in
+    n_in = int(jays_in.sum())
+    if not n_in:
+        return None
+
+    seeds = seeds_of(st)
+    J = idx[JAYS]
+    nsim = seeds.shape[1]
+
+    # Toronto's own seed, 1-6
+    is_j = seeds == J
+    j_seed = np.argmax(is_j, axis=0) + 1
+
+    # who they meet in the Wild Card round; a bye means they meet nobody yet
+    opp_row = np.array([-1, -1, 5, 4, 3, 2])          # seed 1..6 -> opponent's row
+    row = opp_row[j_seed - 1]
+    opp = np.where(row >= 0, seeds[np.clip(row, 0, 5), np.arange(nsim)], -1)
+
+    m = jays_in
+    seed_dist = {k: float((j_seed[m] == k).mean()) for k in range(1, 7)
+                 if (j_seed[m] == k).any()}
+    j_best_seed = max(seed_dist, key=seed_dist.get)
+
+    # Toronto's Wild Card opponent, and whether they host it
+    opp_m = opp[m]
+    opps = []
+    for t_i, c in sorted(collections.Counter(opp_m.tolist()).items(),
+                         key=lambda kv: -kv[1]):
+        opps.append({"team": None if t_i < 0 else AL_TEAMS[t_i], "p": c / n_in})
+
+    # Who fills each seed. Toronto is pinned to its own likeliest seed and the other
+    # five slots show the likeliest club that is NOT Toronto, so the bracket reads as one
+    # coherent picture rather than six independent modal answers that may not fit together.
+    slots = {}
+    for k in range(1, 7):
+        occ = seeds[k - 1][m]
+        counts = collections.Counter(occ.tolist())
+        ranked = [{"team": AL_TEAMS[t_i], "p": c / n_in}
+                  for t_i, c in sorted(counts.items(), key=lambda kv: -kv[1])]
+        if k == j_best_seed:
+            pinned = [r for r in ranked if r["team"] == JAYS] or [{"team": JAYS, "p": 0.0}]
+            rest = [r for r in ranked if r["team"] != JAYS]
+            ranked = pinned + rest
+        else:
+            ranked = [r for r in ranked if r["team"] != JAYS]
+        slots[k] = ranked[:per_slot]
+
+    return {
+        "p_qualify": float(jays_in.mean()),
+        "n_qualifying": n_in,
+        "jays_seed": seed_dist,
+        "jays_best_seed": j_best_seed,
+        "jays_opponent": opps[:per_slot],
+        "p_bye": float((j_seed[m] <= 2).mean()),
+        # the higher seed hosts the whole Wild Card round
+        "p_host": float(((j_seed[m] >= 3) & (j_seed[m] <= 4)).mean()),
+        "slots": slots,
+    }
+
+
 class State:
     """The simulated seasons. Attribute names match the originals in sim.py."""
 
