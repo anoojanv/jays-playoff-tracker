@@ -513,7 +513,8 @@ LIVE_JS = r"""<script>
     if (stale && hrs > 30) {
       stale.innerHTML = "<b>This page is " + Math.round(hrs / 24 * 10) / 10 + " days old.</b> " +
         "It was last rebuilt " + etStamp(gen) + ", so at least one game is probably missing " +
-        "and every number here is from before it.";
+        "and every number here is from before it. Use <b>Refresh</b> at the top to pull " +
+        "the latest results in.";
       stale.hidden = false;
     }
     var g = document.getElementById("genET");
@@ -1026,6 +1027,24 @@ h2{{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:{C['brand
 .hdr .stamp{{font-size:12px;color:rgba(255,255,255,.74);margin-top:6px}}
 .verdict{{font-size:13.5px;color:rgba(255,255,255,.94);margin-top:9px;font-weight:650;
  letter-spacing:.005em}}
+/* manual refresh: a readout-coloured control on the header, not red — it asks for
+   new data rather than setting a scenario, so it must not read as "your input" */
+.rfb{{font:inherit;font-size:11px;font-weight:700;letter-spacing:.04em;color:#fff;
+ background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.34);
+ border-radius:20px;padding:3px 10px 3px 8px;margin-left:10px;cursor:pointer;
+ vertical-align:middle;transition:background .15s,border-color .15s}}
+.rfb:hover{{background:rgba(255,255,255,.2);border-color:rgba(255,255,255,.6)}}
+.rfb:disabled{{cursor:default;opacity:.75}}
+.rfb:focus-visible{{outline:2px solid #fff;outline-offset:2px}}
+.rfi{{display:inline-block;font-size:13px;line-height:1;margin-right:2px}}
+.rfb.spin .rfi{{animation:rfspin 1s linear infinite}}
+@keyframes rfspin{{to{{transform:rotate(360deg)}}}}
+@media(prefers-reduced-motion:reduce){{.rfb.spin .rfi{{animation:none}}}}
+.rfmsg{{display:inline-block;font-size:11.5px;color:rgba(255,255,255,.8);margin-left:8px;
+ vertical-align:middle}}
+.rfmsg.ok{{color:#9BEBC0;font-weight:600}}
+.rfmsg.bad{{color:#FFCE85;font-weight:600}}
+@media(max-width:560px){{.rfmsg{{display:block;margin:5px 0 0}}}}
 .verdict b{{color:#FFD9D6;font-weight:800}}
 .hdrright{{margin-left:auto;display:flex;align-items:center;gap:18px}}
 .hdr .rec{{text-align:right;color:#fff}}
@@ -1467,7 +1486,11 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
   <div>
     <h1>TORONTO <span>BLUE JAYS</span> — PLAYOFF TRACKER</h1>
     <div class="stamp">Standings through {STAMP} · {R['nsim']:,} simulated seasons
-      · <span id="updAgo" data-utc="{GENERATED_UTC}"></span></div>
+      · <span id="updAgo" data-utc="{GENERATED_UTC}"></span>
+      <button type="button" id="refreshBtn" class="rfb"
+              title="Check MLB for games that have finished since this page was published"
+              aria-label="Refresh data"><span class="rfi" aria-hidden="true">&#8635;</span> Refresh</button>
+      <span id="refreshMsg" class="rfmsg" aria-live="polite"></span></div>
     {verdict_html}
   </div>
   <div class="hdrright">

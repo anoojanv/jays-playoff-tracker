@@ -21,6 +21,14 @@ on:
         description: "Build only, do not publish"
         type: boolean
         default: false
+      # The page's Refresh button dispatches with this set: it wants the cheap
+      # "has anything finished?" check, not an unconditional rebuild, so a click
+      # when nothing has changed costs seconds rather than minutes. Left off (the
+      # Actions-tab default) a manual run still rebuilds regardless, as before.
+      only_if_changed:
+        description: "Only rebuild if a game has finished since the last publish"
+        type: boolean
+        default: false
 
 concurrency:
   group: tracker
@@ -48,8 +56,9 @@ jobs:
         id: check
         env:
           SITE_URL: https://jays-playoff-tracker.netlify.app
-          # anything that is not a polling tick rebuilds unconditionally
-          FORCE_BUILD: ${{ (github.event_name != 'schedule' || github.event.schedule == '13 7 * * *') && 'true' || '' }}
+          # anything that is not a polling tick rebuilds unconditionally — except a
+          # dispatch from the page's Refresh button, which asks for the cheap check
+          FORCE_BUILD: ${{ (github.event_name != 'schedule' || github.event.schedule == '13 7 * * *') && !(github.event_name == 'workflow_dispatch' && inputs.only_if_changed == true) && 'true' || '' }}
         run: python3 src/check_changed.py
 
       - uses: actions/setup-python@v5
@@ -112,7 +121,11 @@ jobs:
           # Retry transient failures only. Anything authentication-shaped already exited
           # above, so this never burns attempts on something a retry cannot fix.
           for attempt in 1 2 3; do
-            if npx --yes netlify-cli@17 deploy --prod --dir public --site "$NETLIFY_SITE_ID" --message "build ${{ github.run_number }}"; then
+            # --functions ships the Refresh button's endpoint (netlify/functions) with the
+            # page. Absolute, because the repo-root netlify.toml belongs to the shopping
+            # app and sets a different base and functions directory; without this flag
+            # the tracker site was being deployed with THAT app's function instead.
+            if npx --yes netlify-cli@17 deploy --prod --dir public --functions "$GITHUB_WORKSPACE/netlify/functions" --site "$NETLIFY_SITE_ID" --message "build ${{ github.run_number }}"; then
               exit 0
             fi
             if [ "$attempt" -lt 3 ]; then
