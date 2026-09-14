@@ -26,7 +26,7 @@ Derived      : every conditional (odds given a series result, odds given a rival
                finish, per-game leverage) is computed by conditioning on the SAME
                set of simulated seasons, so all numbers are mutually consistent.
 """
-import collections, json, os
+import collections, json, math, os
 import numpy as np
 import data as D
 
@@ -239,6 +239,58 @@ def momentum(decay=0.90, window=25):
     }
 
 
+def around_the_league(st, live_lo=0.05, live_hi=0.98):
+    """Every remaining game Toronto is NOT playing, scored against Toronto's own odds.
+
+    For each game: P(Toronto in | home wins) - P(Toronto in | away wins), read off the
+    same simulated seasons as everything else, so it cannot disagree with the headline
+    number. `root` is the club a Blue Jays fan should want to win, and `leverage` is the
+    size of the gap.
+
+    This is the half of scoreboard watching the page never had. Ranking clubs by how much
+    their FINISH matters is unactionable the moment two of them play each other: "root
+    against Cleveland" and "root against Chicago" are contradictory advice for a
+    Cleveland-Chicago game. Scoring the game resolves it, and it prices in the whole
+    structure of the field — including a division race, where the loser drops into the
+    wild-card pool Toronto is fighting over, so beating a rival can help them.
+    """
+    jays_in = st.jays_in
+    nsim = int(jays_in.shape[0])
+    po = {t: float(st.playoff[idx[t]].mean()) for t in AL_TEAMS}
+    out = []
+    for i, (date, a, h) in enumerate(games):
+        if JAYS in (a, h) or (a not in D.AL and h not in D.AL):
+            continue
+        w = st.home_wins[i]
+        nw = int(w.sum())
+        if nw == 0 or nw == nsim:        # degenerate once the race is decided
+            continue
+        p1 = float(jays_in[w].mean())
+        p2 = float(jays_in[~w].mean())
+        lv = p1 - p2
+        # Monte Carlo error on that difference. Most games in a league are worth almost
+        # nothing to Toronto, and below a couple of standard errors the SIGN is noise —
+        # so the page would be telling people to root for a team on the strength of a
+        # coin flip in the random number generator. Anything that does not clear the bar
+        # is reported as a toss-up instead of getting a recommendation it cannot support.
+        n1, n2 = nw, nsim - nw
+        se = math.sqrt(p1 * (1 - p1) / n1 + p2 * (1 - p2) / n2)
+        out.append({
+            "date": date, "away": a, "home": h,
+            "root": h if lv > 0 else a,
+            "leverage": abs(lv),
+            "sure": bool(abs(lv) > 2 * se),
+            # Both clubs still genuinely in the race, so one of them has to lose and the
+            # game is worth less than either club's dependency bar implies. Keyed on live
+            # playoff odds rather than on CLUSTER, which excludes division leaders — and
+            # a division race between two live clubs is the sharpest case of this.
+            "h2h": bool(live_lo < po.get(a, 0.0) < live_hi
+                        and live_lo < po.get(h, 0.0) < live_hi),
+        })
+    out.sort(key=lambda g: (g["date"], -g["leverage"]))
+    return out
+
+
 class State:
     """The simulated seasons. Attribute names match the originals in sim.py."""
 
@@ -290,9 +342,11 @@ def simulate():
         _, a, h = games[i]
         jays_won[k] = home_wins[i] if h == JAYS else ~home_wins[i]
 
+    # home_wins travels with the rest: it is what makes a game NOT involving Toronto
+    # scoreable against Toronto's odds, which is the whole of the spoiler analysis.
     return State(wins=wins, score=score, wc_score=wc_score, div_winner=div_winner,
                  wc=wc, playoff=playoff, jays_in=playoff[J], jays_wins=wins[J],
-                 jays_won=jays_won)
+                 jays_won=jays_won, home_wins=home_wins)
 
 
 # ---------------------------------------------------------------- state cache

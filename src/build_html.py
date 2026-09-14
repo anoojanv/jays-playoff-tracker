@@ -708,6 +708,100 @@ else:
     sos_note = ""
 
 
+# ------------------------------------------------------------------ around the league
+# Scoreboard watching, at the level a fan can act on: not "root against Cleveland" but
+# "root for Chicago in tonight's Cleveland-Chicago game", with what it is worth.
+AROUND = R.get("around", [])
+
+
+def _ab(name):
+    return TEAM_ABBR.get(name) or name[:3].upper()
+
+
+# one scale across both columns, so a bar in tonight's slate is directly comparable to a
+# bar in the biggest-remaining list rather than each column filling its own width
+AROUND_TOP = max((g["leverage"] for g in AROUND), default=0.0) or 1.0
+
+
+def around_rows(items, show_date=True):
+    if not items:
+        return ""
+    top = AROUND_TOP
+    out = ""
+    for g in items:
+        d = datetime.date.fromisoformat(g["date"]).strftime("%b %-d")
+        sure = g.get("sure", True)
+        root_home = g["root"] == g["home"]
+        mark = (lambda n, on: f'<span class="alroot">{n}</span>' if (on and sure) else n)
+        away = mark(_ab(g["away"]), not root_home)
+        home = mark(_ab(g["home"]), root_home)
+        tip = (f'Root for {html.escape(g["root"])} — worth {g["leverage"]*100:.1f} points '
+               f"of Toronto's playoff odds" if sure else
+               "Too close to call: the difference is inside the simulation's own margin "
+               "of error, so neither result meaningfully moves Toronto")
+        out += (
+            f'<div class="alrow{"" if sure else " toss"}" title="{tip}">'
+            + (f'<div class="aldate">{d}</div>' if show_date else "")
+            + f'<div class="almatch">{away} <i>at</i> {home}'
+            + ('<span class="alh2h">both in the race</span>' if g["h2h"] and sure else "")
+            + f'</div><div class="altrack"><div class="albar" '
+              f'style="width:{max(2, g["leverage"]/top*100):.0f}%"></div></div>'
+            + (f'<div class="alnum">{g["leverage"]*100:.1f}</div>' if sure
+               else '<div class="alnum tossl">toss-up</div>')
+            + '</div>')
+    return out
+
+
+_next_date = R.get("around_next_date")
+_tonight = [g for g in AROUND if g["date"] == _next_date][:7]
+_biggest = sorted((g for g in AROUND if g.get("sure", True)),
+                  key=lambda g: -g["leverage"])[:6]
+if _tonight:
+    _nd = datetime.date.fromisoformat(_next_date).strftime("%A, %B %-d")
+    around_next_html = around_rows(_tonight, show_date=False)
+else:
+    _nd, around_next_html = "", ""
+around_big_html = around_rows(_biggest)
+
+# the head-to-head caveat, stated against a real game when there is one
+_h2h = next((g for g in AROUND if g["h2h"]), None)
+if _h2h:
+    around_note = (
+        f"When two clubs still in the race play each other &mdash; "
+        f"{html.escape(_h2h['away'])} at {html.escape(_h2h['home'])} on "
+        f"{datetime.date.fromisoformat(_h2h['date']).strftime('%b %-d')} &mdash; the game is "
+        f"worth <b>less</b> than either club's bar above suggests, because one of them has "
+        f"to lose either way. Rooting against both is not a thing you can do; this says "
+        f"which side actually helps.")
+else:
+    around_note = ("None of the remaining games put two of Toronto's chasers against each "
+                   "other, so every game here moves one club's total in one direction.")
+
+if AROUND:
+    around_section = f"""<div class="grid1">
+  <div class="card" id="around">
+    <h2>Around the league <span class="sub">&mdash; the games Toronto isn't playing</span></h2>
+    <div class="hint">Every remaining game in the league, scored against Toronto's odds from
+      the same simulated seasons as everything else on this page. <b>The highlighted club is
+      the one to root for.</b></div>
+    <div class="algrid">
+      <div>
+        <div class="alhead">{_nd or "Next games"}</div>
+        {around_next_html or '<div class="alempty">No other games that day.</div>'}
+      </div>
+      <div>
+        <div class="alhead">Biggest left, any date</div>
+        {around_big_html}
+      </div>
+    </div>
+    <div class="note">{around_note} A game marked <b>toss-up</b> is one where the
+      difference between the two results is inside the simulation's own margin of error,
+      so the page does not pretend to know which way to cheer.</div>
+  </div>
+</div>"""
+else:
+    around_section = ""
+
 # ---- the one-line verdict ---------------------------------------------------------
 # A plain-English read of the situation, bucketed from the odds so it can never go
 # stale, with the required record attached while there is still a race to run.
@@ -770,7 +864,10 @@ GENERATED_UTC = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT
 # ---- section navigation ----------------------------------------------------------
 SECTIONS = [("play", "Play it out"), ("takes", "What it takes"), ("race", "WC race"),
             ("curve", "Wins needed"), ("roadmap", "Road map"),
-            ("watch", "Scoreboard"), ("calendar", "Calendar")]
+            ("watch", "Scoreboard")]
+if R.get("around"):
+    SECTIONS.append(("around", "Around the league"))
+SECTIONS.append(("calendar", "Calendar"))
 if _D.INJURIES:
     SECTIONS.append(("injuries", "Injuries"))
 nav_html = "".join(f'<a href="#{sid}">{html.escape(lab)}</a>' for sid, lab in SECTIONS)
@@ -975,6 +1072,31 @@ h2{{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:{C['brand
 .stale{{background:#FFF4E5;border:1px solid #F1C88A;color:#7A4B00;border-radius:10px;
  padding:10px 14px;font-size:12.5px;margin-bottom:12px;line-height:1.45}}
 .stale b{{color:#5C3800}}
+/* ---- around the league ---- */
+.algrid{{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:4px}}
+.alhead{{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+ color:{C['mute']};margin-bottom:9px;padding-bottom:6px;border-bottom:1px solid {C['grid']}}}
+.alrow{{display:flex;align-items:center;gap:9px;margin-bottom:7px;font-size:12px}}
+.aldate{{width:44px;flex:none;color:{C['mute']};font-size:11px;
+ font-variant-numeric:tabular-nums}}
+.almatch{{width:132px;flex:none;color:{C['ink2']};font-weight:700;white-space:nowrap}}
+.almatch i{{font-style:normal;font-weight:400;color:{C['mute']};font-size:11px}}
+.alroot{{color:{C['redtext']};font-weight:800;
+ box-shadow:inset 0 -2px 0 rgba(232,41,28,.30)}}
+.alh2h{{display:block;font-size:9px;font-weight:700;letter-spacing:.05em;
+ text-transform:uppercase;color:{C['mute']}}}
+.altrack{{flex:1;height:7px;background:{C['card2']};border-radius:4px;overflow:hidden;
+ min-width:30px}}
+.albar{{height:100%;border-radius:4px;background:{C['blue']}}}
+.alnum{{width:32px;text-align:right;font-size:11px;color:{C['ink2']};
+ font-variant-numeric:tabular-nums}}
+.alrow.toss .almatch{{color:{C['mute']};font-weight:600}}
+.alrow.toss .albar{{background:{C['axis']}}}
+.alnum.tossl{{width:46px;font-size:9.5px;color:{C['mute']};font-weight:700;
+ letter-spacing:.03em;text-transform:uppercase}}
+.alempty{{font-size:11.5px;color:{C['mute']}}}
+@media(max-width:840px){{.algrid{{grid-template-columns:1fr;gap:18px}}}}
+@media(max-width:560px){{.almatch{{width:112px;font-size:11.5px}}}}
 .ccap{{font-size:11.5px;color:{C['ink2']};margin-top:10px;min-height:17px}}
 .cday.game{{cursor:pointer}}
 .cday.game:focus-visible{{outline:2px solid {C['red']};outline-offset:1px}}
@@ -1517,7 +1639,9 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
       force that finish in the live simulator — the big number, the wild-card odds bars
       and the projection all re-run with it, and it stacks with whatever you set on the
       slider or the road map. Tap again to hand the club back to the model.
-      {dep_note}</div>
+      {dep_note} These bars are about how a club <i>finishes</i>; for a single game,
+      including the ones where two of these clubs play each other, see
+      <a href="#around" style="color:{C['brand']};font-weight:700">Around the league</a>.</div>
 
     <h2 style="margin-top:20px">Model sensitivity <span class="sub">— is {pct(ODDS,0)} real?</span></h2>
     {ens_rows}
@@ -1527,6 +1651,8 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
       {pct(HI)}.</b> {ens_verdict}</div>
   </div>
 </div>
+
+{around_section}
 
 <div class="ms" id="calendar">
   <h2>The run-in <span class="sub">— every game left, shaded by how much it moves the odds</span></h2>

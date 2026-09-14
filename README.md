@@ -165,6 +165,33 @@ division runner-up when Toronto leads, the first club out when Toronto holds a w
 the club holding the last wild card otherwise. They come from the standings, not the
 simulation, so they agree with every broadcast.
 
+## Around the league
+
+Scoreboard watching, at the level a fan can act on. Every remaining game Toronto is *not*
+playing is scored against Toronto's own odds from the same simulated seasons as the rest
+of the page: P(in | home wins) − P(in | away wins). The club named is the one to root for
+and the number is what the game is worth.
+
+This exists because ranking clubs by how much their *finish* matters falls apart the
+moment two of them play each other. In September 2026 the page told fans to root against
+Cleveland (29.4 points of swing) and against Chicago (11.7) while those two were playing
+a three-game set for the AL Central. Both cannot lose. Scoring the game itself resolves
+it — root for Chicago, worth about 3.3 points a game — and it prices in the structure the
+standings hide: the loser of a division race drops into the wild-card pool Toronto is
+fighting over, so beating a rival can help them.
+
+The same run showed the more useful thing: Cleveland's games against the Athletics and
+Royals were worth 8 to 9 points each, nearly three times the head-to-head, precisely
+because the head-to-head partly cancels itself out.
+
+**Toss-ups.** Most games in a league are worth almost nothing to Toronto, and below a
+couple of standard errors the *sign* of the difference is Monte Carlo noise rather than
+baseball. In the fixture, games worth under half a point disagreed with "root against the
+club you are chasing" about a quarter of the time; above one point they agreed 37 times
+out of 37. So each game carries its own standard error and anything that does not clear
+twice it is shown as a toss-up with no recommendation, rather than sending people to
+cheer on the strength of a coin flip in the random number generator.
+
 ## Strength of schedule
 
 It is already in every probability on the page, and not as an adjustment: each remaining
@@ -243,6 +270,7 @@ python src/selftest_fetch.py    # the MLB fetch, with the network mocked
 python src/selftest_check.py    # the polling decision, all six paths
 python tests/test_momentum.py   # the momentum rating's semantics
 python tests/test_rivals.py     # the rival lists follow the standings
+python tests/test_spoiler.py    # scoring the games Toronto is not playing
 python tests/test_sos.py        # strength of schedule, and that it matches the sim
 python tests/test_history.py    # the day-over-day deltas and the page's own history
 python tests/test_reconcile.py  # the 162-game check, over- and under-count

@@ -165,6 +165,13 @@ out["division"] = {
     "odds": out["odds"]["division"],
 }
 
+# ---------------------------------------------------------------- around the league
+# Every remaining game Toronto is not playing, scored against Toronto's odds. The logic
+# lives in model.around_the_league() so it can be tested without a 120,000-season run.
+around = model.around_the_league(st)
+out["around"] = around
+out["around_next_date"] = around[0]["date"] if around else None
+
 # rival-dependency: how much Jays odds move on a rival's finish
 dep = {}
 for t in RIVALS:
@@ -222,6 +229,11 @@ if out["momentum"]:
 print("\nrival odds:")
 for t, v in sorted(out["rivals"].items(), key=lambda x: -x[1]["playoff"]):
     print(f"  {t:<10} {v['w']}-{v['l']} rd{v['rd']:+4d}  proj {v['proj_w']:.1f}  {v['playoff']*100:5.1f}%")
+print("\ntop games elsewhere in the league:")
+for g in sorted(around, key=lambda x: -x["leverage"])[:8]:
+    print(f"  {g['date']} {g['away']:<10} at {g['home']:<10} root {g['root']:<10} "
+          f"{g['leverage']*100:.2f} pts" + ("   (both chasing)" if g["h2h"] else ""))
+
 print("\ntop leverage games:")
 for g in sorted(lev, key=lambda x: -x["leverage"])[:8]:
     print(f"  {g['date']} vs {g['opp']:<10} {'H' if g['home'] else 'A'}  {g['leverage']*100:.2f} pts")
