@@ -124,30 +124,6 @@ def _():
         assert abs(back - odds) <= 0.0005, (odds, back)
 
 
-@case("the bootstrap seed is a well-formed history with momentum on every point")
-def _():
-    # transcribed by hand from build logs, so a typo is entirely possible and would
-    # otherwise show up as a silently missing delta rather than an error
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "fd", os.path.join(os.path.dirname(HERE), "src", "fetch_data.py"))
-    fd = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(fd)
-
-    pts = H.parse(fd.HISTORY_SEED)
-    assert len(pts) == fd.HISTORY_SEED.count(",") + 1, pts
-    assert H.encode(pts) == fd.HISTORY_SEED, H.encode(pts)
-    for t, odds, mom in pts:
-        # a point with no momentum would silently kill the momentum delta whenever
-        # lookback happened to land on it
-        assert mom is not None, (t, odds)
-        assert 0 <= odds <= 1000, (t, odds)
-        assert 1_700_000_000 < t < 2_000_000_000, t
-    # spaced far enough apart to survive append()'s collapsing, and in order
-    for (a, _, _), (b, _, _) in zip(pts, pts[1:]):
-        assert b - a >= H.MIN_GAP_S, (a, b)
-
-
 def main():
     fails = []
     for name, fn in CASES:

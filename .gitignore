@@ -10,3 +10,4 @@ __pycache__/
 # committed copy was only ever a stale duplicate — and a local build would silently
 # overwrite it with whatever data happened to be in build/data.json.
 public/index.html
+public/og.png
