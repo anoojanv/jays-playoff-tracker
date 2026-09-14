@@ -66,6 +66,9 @@ jobs:
       - name: Scoring the games Toronto is not playing
         run: python tests/test_spoiler.py
 
+      - name: Seeding the AL bracket
+        run: python tests/test_bracket.py
+
       - name: The page still builds once the race is decided
         run: python tests/test_endgame.py
 

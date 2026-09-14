@@ -12,7 +12,7 @@ database — and it means the awkward cases are about time, not arithmetic:
 
 Run:  python tests/test_history.py
 """
-import os, sys
+import os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "src"))
@@ -122,6 +122,55 @@ def _():
         pts = H.append([], NOW, odds, 0)
         back = pts[0][1] / 1000.0
         assert abs(back - odds) <= 0.0005, (odds, back)
+
+
+PALETTE = {"grid": "#E3EBF6", "mute": "#5F7290", "ink2": "#4A5C7A",
+           "blue": "#1C5FAD", "red": "#E8291C"}
+
+
+def _series(n, start=NOW - 11 * 24 * HOUR, step=4 * HOUR, lo=120, hi=490):
+    out, span = [], max(1, n - 1)
+    for i in range(n):
+        out.append((start + i * step, lo + (hi - lo) * i // span, 0))
+    return out
+
+
+@case("a page with nothing to plot draws nothing rather than a story")
+def _():
+    for pts in ([], _series(1), _series(3), _series(8, step=600)):   # too few, or too narrow
+        svg, note = H.sparkline(pts, PALETTE)
+        assert svg == "" and note == "", (len(pts), svg[:40])
+
+
+@case("a real history draws a line through every reading")
+def _():
+    pts = _series(40, step=6 * HOUR)                 # 39 gaps x 6h = 9.75 days
+    svg, note = H.sparkline(pts, PALETTE)
+    assert svg.startswith("<svg") and svg.endswith("</svg>")
+    coords = re.search(r'<polyline points="([^"]*)"', svg).group(1).split()
+    assert len(coords) == len(pts), (len(coords), len(pts))
+    assert "40 rebuilds over 10 days" in note, note
+
+
+@case("the high and low labels are the actual high and low")
+def _():
+    pts = _series(30)[:]
+    pts[7] = (pts[7][0], 910, 0)            # a spike
+    pts[19] = (pts[19][0], 40, 0)           # a trough
+    svg, note = H.sparkline(pts, PALETTE)
+    assert "91% high" in svg, svg[-400:]
+    assert "4% low" in svg, svg[-400:]
+    assert "87-point" in note, note
+
+
+@case("the plotted line stays inside the drawing area")
+def _():
+    pts = _series(25, lo=0, hi=1000)        # 0% to 100%, the extremes
+    svg, _ = H.sparkline(pts, PALETTE, w=660, h=150)
+    for pair in re.search(r'<polyline points="([^"]*)"', svg).group(1).split():
+        px, py = (float(v) for v in pair.split(","))
+        assert 0 <= px <= 660, px
+        assert 0 <= py <= 150, py
 
 
 def main():

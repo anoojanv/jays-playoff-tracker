@@ -679,6 +679,12 @@ if DELTA:
         mom_delta_html = _chip(float(DELTA["momentum"]), "", "momchg", digits=0)
 
 
+# ------------------------------------------------------------------ odds over time
+# The page has carried its own history in a meta tag for weeks and never showed it. No
+# fetch and no database: the same readings the day-over-day chip already uses. The drawing
+# lives in history.py, which owns the readings, so it can be tested without a build.
+TREND_SVG, TREND_NOTE = _H.sparkline(HIST, C)
+
 MOM = R.get("momentum")
 if MOM:
     _arrow = "&#9650;" if MOM["index"] > 0 else ("&#9660;" if MOM["index"] < 0 else "&#9644;")
@@ -803,6 +809,69 @@ if AROUND:
 else:
     around_section = ""
 
+# ------------------------------------------------------------------ the bracket
+BK = R.get("bracket")
+if BK:
+    def _seat(k):
+        rows = BK["slots"].get(k) or BK["slots"].get(str(k)) or []
+        top = rows[0] if rows else {"team": "?", "p": 0.0}
+        you = " you" if top["team"] == JAYS else ""
+        return (f'<div class="bkseat{you}" data-slot="{k}">'
+                f'<span class="bksd">{k}</span>'
+                f'<span class="bktm" data-bk-team>{TEAM_ABBR.get(top["team"], top["team"])}</span>'
+                f'<span class="bkp" data-bk-p>{top["p"]*100:.0f}%</span></div>')
+
+    # 0% twice is a real answer for a club scraping in as the last seed, but it reads
+    # like a broken template, so say what it means instead
+    if BK["p_bye"] < 0.005 and BK["p_host"] < 0.005:
+        bye_note = ("Coming in as one of the bottom seeds, Toronto opens on the road and "
+                    "never has a bye in any of those seasons.")
+    else:
+        bye_note = (f'Toronto has a bye in {pct(BK["p_bye"], 0)} of those seasons and home '
+                    f'advantage in the Wild Card round in {pct(BK["p_host"], 0)}.')
+
+    _best = BK["jays_best_seed"]
+    _opp = BK["jays_opponent"][0] if BK["jays_opponent"] else None
+    if _opp and _opp["team"] is None:
+        _head = (f'Most likely the <b>{_ordinal(_best)} seed</b> &mdash; '
+                 f'<b>a bye</b> straight to the Division Series')
+    elif _opp:
+        _where = "at" if _best in (5, 6) else "hosting"
+        _head = (f'Most likely the <b>{_ordinal(_best)} seed</b>, {_where} '
+                 f'<b>the {html.escape(_opp["team"])}</b> in the Wild Card round')
+    else:
+        _head = "Seeding is still wide open"
+
+    bracket_section = f"""<div class="grid1">
+  <div class="card" id="bracket">
+    <h2>If they get in <span class="sub">&mdash; the AL bracket, over the seasons Toronto
+      qualifies</span></h2>
+    <div class="bkhead" id="bkHead">{_head}</div>
+    <div class="bkwrap">
+      <div class="bkside">
+        <div class="bklab">Bye to the Division Series</div>
+        {_seat(1)}{_seat(2)}
+      </div>
+      <div class="bkside">
+        <div class="bklab">Wild Card round <i>best of 3 &middot; higher seed hosts</i></div>
+        <div class="bkpair">{_seat(4)}{_seat(5)}
+          <div class="bkto">winner plays the 1 seed</div></div>
+        <div class="bkpair">{_seat(3)}{_seat(6)}
+          <div class="bkto">winner plays the 2 seed</div></div>
+      </div>
+    </div>
+    <div class="note"><b>Every number here is conditional on Toronto qualifying</b>, which
+      is itself {pct(BK["p_qualify"])} &mdash; most of the time none of this happens. Each
+      seat shows the club that lands there most often in the seasons where they do;
+      Toronto is pinned to its own likeliest seed so the six read as one bracket rather
+      than six separate answers. Division winners take seeds 1&ndash;3 by record and the
+      wild cards 4&ndash;6, so a 100-win wild card still seeds behind an 85-win division
+      winner. {bye_note} Set a scenario above and the bracket re-runs with it.</div>
+  </div>
+</div>"""
+else:
+    bracket_section = ""
+
 # ---- the one-line verdict ---------------------------------------------------------
 # A plain-English read of the situation, bucketed from the odds so it can never go
 # stale, with the required record attached while there is still a race to run.
@@ -862,12 +931,26 @@ else:
     next_html = ""
 GENERATED_UTC = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
+trend_section = (f"""<div class="grid1">
+  <div class="card" id="trend">
+    <h2>How the odds got here <span class="sub">&mdash; every rebuild, most recent on the
+      right</span></h2>
+    <div class="trend">{TREND_SVG}</div>
+    <div class="note">{TREND_NOTE}</div>
+  </div>
+</div>""" if TREND_SVG else "")
+
 # ---- section navigation ----------------------------------------------------------
-SECTIONS = [("play", "Play it out"), ("takes", "What it takes"), ("race", "WC race"),
+SECTIONS = [("play", "Play it out")]
+if TREND_SVG:
+    SECTIONS.append(("trend", "How we got here"))
+SECTIONS += [("takes", "What it takes"), ("race", "WC race"),
             ("curve", "Wins needed"), ("roadmap", "Road map"),
             ("watch", "Scoreboard")]
 if R.get("around"):
     SECTIONS.append(("around", "Around the league"))
+if R.get("bracket"):
+    SECTIONS.append(("bracket", "If they get in"))
 SECTIONS.append(("calendar", "Calendar"))
 if _D.INJURIES:
     SECTIONS.append(("injuries", "Injuries"))
@@ -1091,6 +1174,32 @@ h2{{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:{C['brand
 .stale{{background:#FFF4E5;border:1px solid #F1C88A;color:#7A4B00;border-radius:10px;
  padding:10px 14px;font-size:12.5px;margin-bottom:12px;line-height:1.45}}
 .stale b{{color:#5C3800}}
+/* ---- odds over time ---- */
+.trend{{margin-top:2px}}
+
+/* ---- the bracket ---- */
+.bkhead{{font-size:14px;color:{C['ink2']};margin-bottom:14px;line-height:1.45}}
+.bkhead b{{color:{C['navy']};font-weight:800}}
+.bkwrap{{display:grid;grid-template-columns:.8fr 1.2fr;gap:18px;align-items:start}}
+.bkside{{min-width:0}}
+.bklab{{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+ color:{C['mute']};margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid {C['grid']}}}
+.bklab i{{font-style:normal;font-weight:600;letter-spacing:.02em;text-transform:none;
+ color:{C['axis']}}}
+.bkpair{{position:relative;padding-left:13px;margin-bottom:12px}}
+.bkpair:before{{content:"";position:absolute;left:0;top:11px;bottom:26px;width:9px;
+ border:2px solid {C['axis']};border-right:none;border-radius:4px 0 0 4px}}
+.bkseat{{display:flex;align-items:center;gap:9px;padding:7px 10px;margin-bottom:4px;
+ background:{C['card2']};border-radius:8px;border:1.5px solid transparent}}
+.bkseat.you{{background:rgba(28,95,173,.10);border-color:{C['brand']}}}
+.bksd{{width:16px;flex:none;font-size:10px;font-weight:800;color:{C['mute']};
+ font-variant-numeric:tabular-nums}}
+.bkseat.you .bksd{{color:{C['brand']}}}
+.bktm{{font-size:14px;font-weight:800;color:{C['navy']};letter-spacing:-.01em}}
+.bkp{{margin-left:auto;font-size:11px;color:{C['ink2']};font-variant-numeric:tabular-nums}}
+.bkto{{font-size:10px;color:{C['mute']};letter-spacing:.02em;padding:2px 0 0 2px}}
+@media(max-width:700px){{.bkwrap{{grid-template-columns:1fr;gap:16px}}}}
+
 /* ---- around the league ---- */
 .algrid{{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:4px}}
 .alhead{{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
@@ -1490,6 +1599,9 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
       <button type="button" id="refreshBtn" class="rfb"
               title="Check MLB for games that have finished since this page was published"
               aria-label="Refresh data"><span class="rfi" aria-hidden="true">&#8635;</span> Refresh</button>
+      <button type="button" id="shareBtn" class="rfb"
+              title="Share the current odds"
+              aria-label="Share"><span aria-hidden="true">&#8599;</span> Share</button>
       <span id="refreshMsg" class="rfmsg" aria-live="polite"></span></div>
     {verdict_html}
   </div>
@@ -1543,7 +1655,6 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
         <button type="button" data-preset="twoone" class="ps">2&ndash;1 every series</button>
         <button type="button" data-preset="sweep" class="ps">Sweep everything</button>
         <button type="button" data-preset="cold" class="ps">Slump (1&ndash;2 each)</button>
-        <button type="button" id="shareBtn" class="ps" hidden>Copy link to this scenario</button>
       </div>
       <div class="pnread">
         <div><span class="sv" id="liveRec">&mdash;</span><span class="sl" id="liveRecSub">drag the slider, or tap a series below</span></div>
@@ -1554,6 +1665,8 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
     </div>
   </div>
 </div>
+
+{trend_section}
 
 <div class="grid1">
   <div class="card" id="takes">
@@ -1676,6 +1789,8 @@ tr[data-series].locked .lvwrap{{opacity:.32}}
 </div>
 
 {around_section}
+
+{bracket_section}
 
 <div class="ms" id="calendar">
   <h2>The run-in <span class="sub">— every game left, shaded by how much it moves the odds</span></h2>

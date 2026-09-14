@@ -172,6 +172,11 @@ around = model.around_the_league(st)
 out["around"] = around
 out["around_next_date"] = around[0]["date"] if around else None
 
+# ---------------------------------------------------------------- the bracket
+# Where Toronto lands and who they play, conditional on getting in. The simulation always
+# built the full field and threw the seeding away.
+out["bracket"] = model.bracket(st)
+
 # rival-dependency: how much Jays odds move on a rival's finish
 dep = {}
 for t in RIVALS:
@@ -229,6 +234,14 @@ if out["momentum"]:
 print("\nrival odds:")
 for t, v in sorted(out["rivals"].items(), key=lambda x: -x[1]["playoff"]):
     print(f"  {t:<10} {v['w']}-{v['l']} rd{v['rd']:+4d}  proj {v['proj_w']:.1f}  {v['playoff']*100:5.1f}%")
+_b = out["bracket"]
+if _b:
+    print(f"\nif they get in ({_b['p_qualify']*100:.1f}%): most likely the "
+          f"{_b['jays_best_seed']} seed, bye {_b['p_bye']*100:.0f}%, hosting "
+          f"{_b['p_host']*100:.0f}%")
+    for o in _b["jays_opponent"]:
+        print(f"  vs {o['team'] or 'nobody (bye)':<12} {o['p']*100:5.1f}%")
+
 print("\ntop games elsewhere in the league:")
 for g in sorted(around, key=lambda x: -x["leverage"])[:8]:
     print(f"  {g['date']} {g['away']:<10} at {g['home']:<10} root {g['root']:<10} "
