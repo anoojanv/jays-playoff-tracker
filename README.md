@@ -215,25 +215,40 @@ string somebody has to paste, and falls back to the clipboard and then to a prom
 ## If they get in
 
 The simulation always built the full playoff field and threw the seeding away, so the page
-could say "39% to reach the playoffs" and nothing about what reaching them looks like.
+could say "39% to reach the playoffs" and nothing about what reaching them looks like. It
+now draws the whole American League bracket.
 
-The bracket seeds the AL the way MLB actually does it: the three division winners take
-seeds 1–3 **by record**, the three wild cards take 4–6, so a 100-win wild card still seeds
-behind an 85-win division winner. Seeds 1 and 2 sit out the Wild Card round; 3 hosts 6 and
-4 hosts 5, and the winners meet the byes in the Division Series.
+**Seeding**, as MLB actually does it: the three division winners take seeds 1–3 **by
+record**, the three wild cards take 4–6, so a 100-win wild card still seeds behind an
+85-win division winner. Seeds 1 and 2 sit out the Wild Card round; 3 hosts 6 and 4 hosts 5.
 
-Every number in it is conditional on Toronto qualifying, which the section says plainly,
-because most of the time none of it happens. Each seat shows the club that lands there
-most often in the seasons where they do qualify, and Toronto is pinned to its own likeliest
-seed so the six seats read as one coherent bracket rather than six independent modal
-answers that may not fit together.
+**October itself** is played out with the same log5-and-home-field matchup that simulates a
+game in August, over the real formats — the Wild Card round entirely at the higher seed,
+then 2–2–1 and 2–3–2. Every game of a series is played rather than stopping at the clinch,
+which gives the identical winner (whoever gets there first holds the majority of the full
+set) and lets the whole round vectorise over every simulated season at once.
+`tests/test_bracket.py` proves that equivalence by enumerating all 2^7 outcomes rather
+than asserting it.
 
-It is **dynamic**: the browser simulator seeds the field too, so locking a series or
-forcing a rival hot changes who Toronto would meet in October, not just whether they get
-there. `model.bracket()` and the `readBracket()` in `src/app.js` implement the same rules,
-and `tests/test_bracket.py` pins them.
+Every number is conditional on Toronto qualifying and the section says so, because most of
+the time none of it happens. Each slot shows the club reaching it most often in the seasons
+where they do, with the next two on hover. Toronto is pinned to its own likeliest seed so
+the six seeds read as one coherent bracket rather than six independent modal answers that
+need not fit together. Above the bracket, three bars give the thing a fan is actually
+asking: how often Toronto reaches the Division Series, the Championship Series, and the
+pennant.
 
-## Around the league
+It is **dynamic**. The browser simulator seeds the field and plays the rounds too, so
+locking a series or forcing a rival hot rebuilds the whole bracket. Sweeping the run-in
+moves Toronto from the 6 seed to the 1 seed and a bye, and its road from 44/20/7 to
+100/41/22.
+
+**The World Series is not there.** The tracker fetches American League schedules only, so
+there is no honest way to say who comes out of the National League — NL clubs appear in the
+model as interleague opponents and nothing more. Adding it would mean fetching fifteen more
+schedules and extending the 162-game reconciliation to the NL.
+
+## Around the league## Around the league
 
 Scoreboard watching, at the level a fan can act on. Every remaining game Toronto is *not*
 playing is scored against Toronto's own odds from the same simulated seasons as the rest

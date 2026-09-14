@@ -51,6 +51,11 @@ out = {
     "divNames": list(D.DIVISIONS),
     "gH": gH, "gA": gA, "gP": gP, "gJ": gJ,
     "series": ser,
+    # talent and the home edge, so the browser can price a playoff series the same way
+    # the Python model does rather than reading a number off a table
+    "talent": [round(float(model.talent[t]), 6) for t in AL_TEAMS],
+    "hfa": model.HFA_ODDS,
+    "formats": model.FORMATS,
     "jaysIdx": AL_IDX[JAYS],
     "nJaysGames": slot,
     "baselineOdds": float(jays_in.mean()),
