@@ -170,6 +170,33 @@
   var seedCt = new Float64Array(7), oppCt = new Float64Array(NT + 1);
   var slotCt = new Float64Array(6 * NT);
   var WC_OPP_ROW = [-1, -1, 5, 4, 3, 2];       // seed index -> opponent's seed index
+
+  /* October itself. Same log5-plus-home-edge matchup the schedule is simulated with, so a
+     Division Series is priced the way a game in August is. Home-field patterns as MLB
+     plays them: the Wild Card round entirely at the higher seed, then 2-2-1 and 2-3-2. */
+  var TAL = D.talent, HFA = D.hfa;
+  var FMT = D.formats || { wc: [1, 1, 1], alds: [1, 1, 0, 0, 1],
+                           alcs: [1, 1, 0, 0, 0, 1, 1] };
+  var ROUND_KEYS = ["w36", "w45", "d1", "d2", "champ"];
+  var roundCt = new Float64Array(ROUND_KEYS.length * NT);
+  var roadCt = new Float64Array(3);            // reached the ALDS, the ALCS, the pennant
+
+  function pGame(ta, tb, aHome) {
+    var p = (ta - ta * tb) / (ta + tb - 2 * ta * tb), o;
+    if (aHome) { o = p / (1 - p) * HFA; return o / (1 + o); }
+    o = (1 - p) / p * HFA;
+    return 1 / (1 + o);
+  }
+
+  /* Playing every game rather than stopping at the clinch gives the identical winner —
+     whoever gets there first holds the majority of G — and keeps the loop branchless. */
+  function playSeries(a, b, pattern, rand) {
+    var w = 0;
+    for (var i = 0; i < pattern.length; i++) {
+      if (rand() < pGame(TAL[a], TAL[b], !!pattern[i])) w++;
+    }
+    return w > (pattern.length >> 1);
+  }
   var teamIn = new Float64Array(NT), locked = new Int8Array(D.nJaysGames);
   var pick = new Int8Array(8);
 
@@ -225,6 +252,7 @@
     var inCount = 0, jaysWinSum = 0, cutSum = 0;
     for (t = 0; t < NT; t++) teamIn[t] = 0;
     seedCt.fill(0); oppCt.fill(0); slotCt.fill(0);
+    roundCt.fill(0); roadCt.fill(0);
 
     for (var it = 0; it < nsim; it++) {
       for (i = 0; i < locked.length; i++) locked[i] = -1;
@@ -290,6 +318,19 @@
         seedCt[js + 1]++;
         var orow = WC_OPP_ROW[js];
         oppCt[orow < 0 ? NT : seat[orow]]++;          // index NT means a bye
+
+        // play October out
+        var w36 = playSeries(seat[2], seat[5], FMT.wc, rand) ? seat[2] : seat[5];
+        var w45 = playSeries(seat[3], seat[4], FMT.wc, rand) ? seat[3] : seat[4];
+        var d1 = playSeries(seat[0], w45, FMT.alds, rand) ? seat[0] : w45;
+        var d2 = playSeries(seat[1], w36, FMT.alds, rand) ? seat[1] : w36;
+        var ch = playSeries(d1, d2, FMT.alcs, rand) ? d1 : d2;
+        roundCt[0 * NT + w36]++; roundCt[1 * NT + w45]++;
+        roundCt[2 * NT + d1]++;  roundCt[3 * NT + d2]++;
+        roundCt[4 * NT + ch]++;
+        if (js <= 1 || w36 === J || w45 === J) roadCt[0]++;
+        if (d1 === J || d2 === J) roadCt[1]++;
+        if (ch === J) roadCt[2]++;
       }
     }
 
@@ -334,9 +375,21 @@
       }
       slots[k] = rows;
     }
+    var rounds = {};
+    for (var ri = 0; ri < ROUND_KEYS.length; ri++) {
+      var rr = [];
+      for (t = 0; t < NT; t++) {
+        var rc = roundCt[ri * NT + t];
+        if (rc) rr.push({ team: t, p: rc / nIn });
+      }
+      rr.sort(function (a, b) { return b.p - a.p; });
+      rounds[ROUND_KEYS[ri]] = rr;
+    }
     var bye = seed[1] + seed[2];
     return { seed: seed, bestSeed: best, opponent: opp, slots: slots,
-             pBye: bye, pHost: seed[3] + seed[4] };
+             pBye: bye, pHost: seed[3] + seed[4], rounds: rounds,
+             road: { alds: roadCt[0] / nIn, alcs: roadCt[1] / nIn,
+                     pennant: roadCt[2] / nIn } };
   }
 
   /* ---------------------------------------------------------------- state ---- */
@@ -494,25 +547,38 @@
   function paintBracket(bk) {
     var head = el("bkHead");
     if (!head) return;
-    var seats = document.querySelectorAll("[data-slot]");
+    var seats = document.querySelectorAll("[data-node]");
     if (!bk) {                       // eliminated in every simulated season
       head.textContent = "No qualifying seasons left to draw a bracket from.";
       for (var z = 0; z < seats.length; z++) {
         seats[z].classList.remove("you");
         seats[z].querySelector("[data-bk-team]").textContent = "—";
         seats[z].querySelector("[data-bk-p]").textContent = "";
+        var f0 = seats[z].querySelector("[data-bk-fill]");
+        if (f0) f0.style.width = "0%";
       }
       return;
     }
     for (var i = 0; i < seats.length; i++) {
-      var k = +seats[i].dataset.slot, rows = bk.slots[k] || [];
+      var key = seats[i].dataset.node;
+      var rows = /^\d+$/.test(key) ? (bk.slots[+key] || []) : (bk.rounds[key] || []);
       var top = rows[0];
       seats[i].classList.toggle("you", !!top && top.team === J);
-      seats[i].querySelector("[data-bk-team]").textContent =
-        top ? D.abbr[top.team] : "—";
+      seats[i].querySelector("[data-bk-team]").textContent = top ? D.abbr[top.team] : "—";
       seats[i].querySelector("[data-bk-p]").textContent =
         top ? Math.round(top.p * 100) + "%" : "";
+      var fill = seats[i].querySelector("[data-bk-fill]");
+      if (fill) fill.style.width = (top ? top.p * 100 : 0) + "%";
+      seats[i].title = rows.slice(0, 3).map(function (r) {
+        return D.abbr[r.team] + " " + Math.round(r.p * 100) + "%";
+      }).join(", ");
     }
+    ["alds", "alcs", "pennant"].forEach(function (k) {
+      var bar = document.querySelector('[data-road="' + k + '"]');
+      var val = document.querySelector('[data-road-v="' + k + '"]');
+      if (bar) bar.style.width = (bk.road[k] * 100).toFixed(0) + "%";
+      if (val) val.textContent = (bk.road[k] * 100).toFixed(0) + "%";
+    });
     var best = bk.bestSeed, opp = bk.opponent[0];
     if (opp && opp.team === null) {
       head.innerHTML = "Most likely the <b>" + ordinal(best) +

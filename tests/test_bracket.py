@@ -131,6 +131,96 @@ def _():
         assert all(r["team"] != JAYS for r in rows), (k, rows)
 
 
+@case("the series formats are the ones MLB actually plays")
+def _():
+    f = model.FORMATS
+    assert len(f["wc"]) == 3 and all(f["wc"]), "the Wild Card round is all at the higher seed"
+    assert f["alds"] == [True, True, False, False, True], f["alds"]      # 2-2-1
+    assert f["alcs"] == [True, True, False, False, False, True, True], f["alcs"]  # 2-3-2
+    for k, pat in f.items():
+        assert len(pat) % 2 == 1, f"{k} cannot be decided in an even number of games"
+        # the higher seed never has fewer home games than the lower one
+        assert sum(pat) > len(pat) - sum(pat), k
+
+
+@case("playing every game picks the same winner as stopping at the clinch")
+def _():
+    """The shortcut the vectorised series rests on. Whoever gets to the needed wins first
+    necessarily holds the majority of the full set, so there is no need to stop early —
+    and if that were ever wrong, every series on the page would be wrong."""
+    import itertools
+    for g in (3, 5, 7):
+        need = g // 2 + 1
+        for outcome in itertools.product([True, False], repeat=g):
+            first, a, b = None, 0, 0
+            for w in outcome:
+                a, b = a + w, b + (not w)
+                if first is None and (a == need or b == need):
+                    first = a == need
+            assert first == (sum(outcome) > g // 2), (g, outcome)
+
+
+@case("the better club wins a series more often, and home field is worth something")
+def _():
+    rng = np.random.default_rng(4)
+    n = 20_000
+    strong = np.full(n, 0.560)
+    weak = np.full(n, 0.440)
+    even = np.full(n, 0.500)
+    assert model.play_series(rng, strong, weak, model.FORMATS["alcs"]).mean() > 0.62
+    assert model.play_series(rng, weak, strong, model.FORMATS["alcs"]).mean() < 0.38
+    # an even matchup with every game at home has to beat a coin flip
+    home = model.play_series(rng, even, even, model.FORMATS["wc"]).mean()
+    assert 0.52 < home < 0.62, home
+    # and a longer series favours the better club more than a short one does
+    short = model.play_series(rng, strong, weak, model.FORMATS["wc"]).mean()
+    long_ = model.play_series(rng, strong, weak, model.FORMATS["alcs"]).mean()
+    assert long_ > short, (short, long_)
+
+
+@case("every round is won by one of the two clubs actually in it")
+def _():
+    rng = np.random.default_rng(11)
+    ps = model.postseason(ST, SEEDS, rng)
+    cols = np.arange(NS)
+    s1, s2, s3, s4, s5, s6 = (SEEDS[k] for k in range(6))
+    assert ((ps["w36"] == s3) | (ps["w36"] == s6)).all()
+    assert ((ps["w45"] == s4) | (ps["w45"] == s5)).all()
+    assert ((ps["d1"] == s1) | (ps["d1"] == ps["w45"])).all()
+    assert ((ps["d2"] == s2) | (ps["d2"] == ps["w36"])).all()
+    assert ((ps["champ"] == ps["d1"]) | (ps["champ"] == ps["d2"])).all()
+    # and the pennant always goes to a club that was in the field
+    in_field = (SEEDS == ps["champ"]).any(axis=0)
+    assert in_field.all(), "a club won the pennant without making the playoffs"
+
+
+@case("a bye means the 1 and 2 seeds skip the Wild Card round entirely")
+def _():
+    rng = np.random.default_rng(12)
+    ps = model.postseason(ST, SEEDS, rng)
+    for k in ("w36", "w45"):
+        assert not (ps[k] == SEEDS[0]).any(), "the 1 seed played in the Wild Card round"
+        assert not (ps[k] == SEEDS[1]).any(), "the 2 seed played in the Wild Card round"
+
+
+@case("Toronto's road only gets harder, never easier")
+def _():
+    r = B["road"]
+    assert 0 <= r["pennant"] <= r["alcs"] <= r["alds"] <= 1.0, r
+    # reaching the Division Series is at least as likely as the bye alone guarantees
+    assert r["alds"] >= B["p_bye"] - 1e-9, (r["alds"], B["p_bye"])
+
+
+@case("the later rounds are distributions over clubs still alive")
+def _():
+    for k in ("w36", "w45", "d1", "d2", "champ"):
+        rows = B["rounds"][k]
+        assert rows, k
+        assert sum(r["p"] for r in rows) <= 1.0 + 1e-9, k
+        for r in rows:
+            assert r["team"] in model.AL_TEAMS, (k, r)
+
+
 @case("an eliminated club gets no bracket instead of a crash")
 def _():
     """Every September somebody is out, and that is exactly when the build must keep

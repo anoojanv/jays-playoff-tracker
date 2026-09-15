@@ -307,6 +307,65 @@ def seeds_of(st):
     return np.vstack([dw, wc])
 
 
+# Home-field patterns, as MLB plays them. True = the higher seed hosts.
+#   Wild Card  best of 3: the higher seed hosts every game
+#   Division   best of 5: 2-2-1
+#   Championship best of 7: 2-3-2
+FORMATS = {
+    "wc":   [True, True, True],
+    "alds": [True, True, False, False, True],
+    "alcs": [True, True, False, False, False, True, True],
+}
+
+
+def _matchup_vec(tal_a, tal_b, a_home):
+    """log5 plus home edge, elementwise — the same maths matchup() uses one at a time."""
+    p = (tal_a - tal_a * tal_b) / (tal_a + tal_b - 2 * tal_a * tal_b)
+    if a_home:
+        o = p / (1 - p) * HFA_ODDS
+        return o / (1 + o)
+    o = (1 - p) / p * HFA_ODDS
+    return 1 / (1 + o)
+
+
+def play_series(rng, tal_a, tal_b, pattern):
+    """Does A win the series? One draw per game in the pattern, majority takes it.
+
+    Playing all G games rather than stopping at the clinch gives the identical winner —
+    whoever reaches the needed wins first necessarily holds the majority of G — and it
+    vectorises over every simulated season at once instead of looping.
+    """
+    a_wins = np.zeros(len(tal_a), dtype=np.int16)
+    for a_home in pattern:
+        a_wins += rng.random(len(tal_a)) < _matchup_vec(tal_a, tal_b, a_home)
+    return a_wins > len(pattern) // 2
+
+
+def postseason(st, seeds, rng):
+    """Play October out: Wild Card, Division Series, Championship Series.
+
+    Returns the club that comes out of each node of the bracket. The regular-season
+    simulation always stopped at the field; everything past this point is new, and it uses
+    the same log5-plus-home-edge matchup the schedule is simulated with, so a series is
+    priced the same way a game in August is.
+    """
+    tal = np.array([talent[t] for t in AL_TEAMS])
+    cols = np.arange(seeds.shape[1])
+    s1, s2, s3, s4, s5, s6 = (seeds[k] for k in range(6))
+
+    # Wild Card round: 3 hosts 6, 4 hosts 5
+    w36 = np.where(play_series(rng, tal[s3], tal[s6], FORMATS["wc"]), s3, s6)
+    w45 = np.where(play_series(rng, tal[s4], tal[s5], FORMATS["wc"]), s4, s5)
+
+    # Division Series: the 1 seed takes the 4/5 winner, the 2 seed takes the 3/6 winner
+    d1 = np.where(play_series(rng, tal[s1], tal[w45], FORMATS["alds"]), s1, w45)
+    d2 = np.where(play_series(rng, tal[s2], tal[w36], FORMATS["alds"]), s2, w36)
+
+    # Championship Series: the better seed hosts, and d1 always outranks d2
+    champ = np.where(play_series(rng, tal[d1], tal[d2], FORMATS["alcs"]), d1, d2)
+    return {"w36": w36, "w45": w45, "d1": d1, "d2": d2, "champ": champ}
+
+
 def bracket(st, per_slot=4):
     """Where Toronto lands and who they play, GIVEN that they qualify.
 
@@ -364,6 +423,23 @@ def bracket(st, per_slot=4):
             ranked = [r for r in ranked if r["team"] != JAYS]
         slots[k] = ranked[:per_slot]
 
+    # ---- the rest of October
+    rng = np.random.default_rng(SEED + 7)
+    ps = postseason(st, seeds, rng)
+
+    def dist(arr):
+        c = collections.Counter(arr[m].tolist())
+        return [{"team": AL_TEAMS[t_i], "p": n / n_in}
+                for t_i, n in sorted(c.items(), key=lambda kv: -kv[1])][:per_slot]
+
+    rounds = {k: dist(v) for k, v in ps.items()}
+
+    # Toronto's own road, each step conditional on qualifying
+    bye = j_seed <= 2
+    reach_alds = bye | (ps["w36"] == J) | (ps["w45"] == J)
+    reach_alcs = (ps["d1"] == J) | (ps["d2"] == J)
+    pennant = ps["champ"] == J
+
     return {
         "p_qualify": float(jays_in.mean()),
         "n_qualifying": n_in,
@@ -374,6 +450,12 @@ def bracket(st, per_slot=4):
         # the higher seed hosts the whole Wild Card round
         "p_host": float(((j_seed[m] >= 3) & (j_seed[m] <= 4)).mean()),
         "slots": slots,
+        "rounds": rounds,
+        "road": {
+            "alds": float(reach_alds[m].mean()),
+            "alcs": float(reach_alcs[m].mean()),
+            "pennant": float(pennant[m].mean()),
+        },
     }
 
 

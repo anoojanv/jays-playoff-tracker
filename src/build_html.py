@@ -812,23 +812,40 @@ else:
 # ------------------------------------------------------------------ the bracket
 BK = R.get("bracket")
 if BK:
-    def _seat(k):
-        rows = BK["slots"].get(k) or BK["slots"].get(str(k)) or []
-        top = rows[0] if rows else {"team": "?", "p": 0.0}
-        you = " you" if top["team"] == JAYS else ""
-        return (f'<div class="bkseat{you}" data-slot="{k}">'
-                f'<span class="bksd">{k}</span>'
-                f'<span class="bktm" data-bk-team>{TEAM_ABBR.get(top["team"], top["team"])}</span>'
-                f'<span class="bkp" data-bk-p>{top["p"]*100:.0f}%</span></div>')
+    _slots = BK["slots"]
+    _rounds = BK["rounds"]
 
-    # 0% twice is a real answer for a club scraping in as the last seed, but it reads
-    # like a broken template, so say what it means instead
-    if BK["p_bye"] < 0.005 and BK["p_host"] < 0.005:
-        bye_note = ("Coming in as one of the bottom seeds, Toronto opens on the road and "
-                    "never has a bye in any of those seasons.")
-    else:
-        bye_note = (f'Toronto has a bye in {pct(BK["p_bye"], 0)} of those seasons and home '
-                    f'advantage in the Wild Card round in {pct(BK["p_host"], 0)}.')
+    def _rows(key):
+        if isinstance(key, int):
+            return _slots.get(key) or _slots.get(str(key)) or []
+        return _rounds.get(key) or []
+
+    def _node(key, seed=None, cls=""):
+        rows = _rows(key)
+        top = rows[0] if rows else {"team": "?", "p": 0.0}
+        name = top["team"]
+        you = " you" if name == JAYS else ""
+        alt = ", ".join(f'{TEAM_ABBR.get(r["team"], r["team"])} {r["p"]*100:.0f}%'
+                        for r in rows[:3])
+        return (f'<div class="bknode{you}{cls}" data-node="{key}" '
+                f'title="{html.escape(alt)}">'
+                f'<span class="bkfill" data-bk-fill style="width:{top["p"]*100:.0f}%"></span>'
+                + (f'<span class="bkseed">{seed}</span>' if seed else
+                   '<span class="bkseed bkdash">&middot;</span>')
+                + f'<span class="bkteam" data-bk-team>'
+                  f'{TEAM_ABBR.get(name, name)}</span>'
+                  f'<span class="bkpct" data-bk-p>{top["p"]*100:.0f}%</span></div>')
+
+    _road = BK["road"]
+    _road_rows = ""
+    for _k, _lab in (("alds", "Into the Division Series"),
+                     ("alcs", "Into the ALCS"),
+                     ("pennant", "Wins the pennant")):
+        _v = _road[_k]
+        _road_rows += (f'<div class="bkrd"><span class="bkrdl">{_lab}</span>'
+                       f'<div class="bkrdt"><div class="bkrdf" data-road="{_k}" '
+                       f'style="width:{_v*100:.0f}%"></div></div>'
+                       f'<span class="bkrdv" data-road-v="{_k}">{_v*100:.0f}%</span></div>')
 
     _best = BK["jays_best_seed"]
     _opp = BK["jays_opponent"][0] if BK["jays_opponent"] else None
@@ -842,31 +859,60 @@ if BK:
     else:
         _head = "Seeding is still wide open"
 
+    if BK["p_bye"] < 0.005 and BK["p_host"] < 0.005:
+        bye_note = ("Coming in as one of the bottom seeds, Toronto opens on the road and "
+                    "never has a bye in any of those seasons.")
+    else:
+        bye_note = (f'Toronto has a bye in {pct(BK["p_bye"], 0)} of those seasons and home '
+                    f'advantage in the Wild Card round in {pct(BK["p_host"], 0)}.')
+
     bracket_section = f"""<div class="grid1">
   <div class="card" id="bracket">
-    <h2>If they get in <span class="sub">&mdash; the AL bracket, over the seasons Toronto
-      qualifies</span></h2>
+    <h2>If they get in <span class="sub">&mdash; the whole AL bracket, over the seasons
+      Toronto qualifies</span></h2>
     <div class="bkhead" id="bkHead">{_head}</div>
-    <div class="bkwrap">
-      <div class="bkside">
-        <div class="bklab">Bye to the Division Series</div>
-        {_seat(1)}{_seat(2)}
+
+    <div class="bkroad">{_road_rows}</div>
+
+    <div class="bk">
+      <div class="bkhdr">
+        <span>Wild Card <i>best of 3</i></span>
+        <span>Division Series <i>best of 5</i></span>
+        <span>Championship <i>best of 7</i></span>
+        <span>Pennant</span>
       </div>
-      <div class="bkside">
-        <div class="bklab">Wild Card round <i>best of 3 &middot; higher seed hosts</i></div>
-        <div class="bkpair">{_seat(4)}{_seat(5)}
-          <div class="bkto">winner plays the 1 seed</div></div>
-        <div class="bkpair">{_seat(3)}{_seat(6)}
-          <div class="bkto">winner plays the 2 seed</div></div>
+      <div class="bkbody">
+        <div class="bkcol" data-round="Wild Card · best of 3">
+          <div class="bkgrp link">{_node(4, 4)}{_node(5, 5)}</div>
+          <div class="bkgrp link">{_node(3, 3)}{_node(6, 6)}</div>
+        </div>
+        <div class="bkcol" data-round="Division Series · best of 5">
+          <div class="bkgrp link"><span class="bkbye">1 and 2 enter here</span>
+            {_node(1, 1)}{_node("w45")}</div>
+          <div class="bkgrp link"><span class="bkbye">&nbsp;</span>
+            {_node(2, 2)}{_node("w36")}</div>
+        </div>
+        <div class="bkcol bkmid" data-round="Championship · best of 7">
+          <div class="bkgrp link">{_node("d1")}{_node("d2")}</div>
+        </div>
+        <div class="bkcol bkmid bklast" data-round="Pennant">
+          <div class="bkgrp">{_node("champ", None, " champ")}</div>
+        </div>
       </div>
     </div>
+
     <div class="note"><b>Every number here is conditional on Toronto qualifying</b>, which
       is itself {pct(BK["p_qualify"])} &mdash; most of the time none of this happens. Each
-      seat shows the club that lands there most often in the seasons where they do;
-      Toronto is pinned to its own likeliest seed so the six read as one bracket rather
-      than six separate answers. Division winners take seeds 1&ndash;3 by record and the
-      wild cards 4&ndash;6, so a 100-win wild card still seeds behind an 85-win division
-      winner. {bye_note} Set a scenario above and the bracket re-runs with it.</div>
+      slot shows the club that reaches it most often in the seasons where they do, with the
+      next two on hover; Toronto is pinned to its own likeliest seed so the six seeds read
+      as one bracket rather than six separate answers. Division winners take seeds
+      1&ndash;3 by record and the wild cards 4&ndash;6, so a 100-win wild card still seeds
+      behind an 85-win division winner. {bye_note} Series are played out with the same
+      log5-and-home-field matchup that simulates a game in August, over MLB's real formats
+      &mdash; the Wild Card round entirely at the higher seed, then 2&ndash;2&ndash;1 and
+      2&ndash;3&ndash;2. The World Series is not here: the tracker only fetches American
+      League schedules, so there is no honest way to say who comes out of the National
+      League. Set a scenario above and the whole bracket re-runs with it.</div>
   </div>
 </div>"""
 else:
@@ -1180,25 +1226,75 @@ h2{{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:{C['brand
 /* ---- the bracket ---- */
 .bkhead{{font-size:14px;color:{C['ink2']};margin-bottom:14px;line-height:1.45}}
 .bkhead b{{color:{C['navy']};font-weight:800}}
-.bkwrap{{display:grid;grid-template-columns:.8fr 1.2fr;gap:18px;align-items:start}}
-.bkside{{min-width:0}}
-.bklab{{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
- color:{C['mute']};margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid {C['grid']}}}
-.bklab i{{font-style:normal;font-weight:600;letter-spacing:.02em;text-transform:none;
- color:{C['axis']}}}
-.bkpair{{position:relative;padding-left:13px;margin-bottom:12px}}
-.bkpair:before{{content:"";position:absolute;left:0;top:11px;bottom:26px;width:9px;
- border:2px solid {C['axis']};border-right:none;border-radius:4px 0 0 4px}}
-.bkseat{{display:flex;align-items:center;gap:9px;padding:7px 10px;margin-bottom:4px;
- background:{C['card2']};border-radius:8px;border:1.5px solid transparent}}
-.bkseat.you{{background:rgba(28,95,173,.10);border-color:{C['brand']}}}
-.bksd{{width:16px;flex:none;font-size:10px;font-weight:800;color:{C['mute']};
+
+/* Toronto's own road through October, which is the part a fan is actually asking about */
+.bkroad{{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px;
+ padding-bottom:18px;border-bottom:1px solid {C['grid']}}}
+.bkrd{{display:flex;flex-direction:column;gap:6px}}
+.bkrdl{{font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+ color:{C['mute']}}}
+.bkrdt{{height:7px;border-radius:4px;background:{C['card2']};overflow:hidden}}
+.bkrdf{{height:100%;border-radius:4px;background:{C['blue']};
+ transition:width .45s cubic-bezier(.2,.7,.3,1)}}
+.bkrdv{{font-size:18px;font-weight:800;color:{C['navy']};letter-spacing:-.02em;
+ font-variant-numeric:tabular-nums;line-height:1}}
+@media(max-width:560px){{.bkroad{{grid-template-columns:1fr;gap:11px}}
+ .bkrd{{flex-direction:row;align-items:center;gap:10px}}
+ .bkrdl{{width:132px;flex:none}} .bkrdt{{flex:1}}
+ .bkrdv{{width:42px;text-align:right;font-size:15px}}}}
+
+/* Four rounds side by side. Rounds 1 and 2 hold two matchups each and sit top and bottom;
+   rounds 3 and 4 hold one and centre, so each round nests between the two feeding it. */
+.bkhdr,.bkbody{{display:grid;grid-template-columns:repeat(4,1fr);gap:0}}
+.bkhdr span{{font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+ color:{C['mute']};padding:0 14px 7px 0;border-bottom:1px solid {C['grid']};
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.bkhdr i{{font-style:normal;font-weight:600;letter-spacing:.02em;text-transform:none;
+ color:{C['axis']};margin-left:3px}}
+.bkbody{{margin-top:14px;min-height:250px}}
+.bkcol{{display:flex;flex-direction:column;justify-content:space-between;
+ padding-right:14px;min-width:0}}
+.bkcol.bkmid{{justify-content:center}}
+.bkcol.bklast{{padding-right:0}}
+.bkgrp{{position:relative;display:flex;flex-direction:column;gap:5px}}
+.bkbye{{position:absolute;top:-13px;left:1px;font-size:8.5px;font-weight:700;
+ letter-spacing:.06em;text-transform:uppercase;color:{C['axis']};white-space:nowrap}}
+/* the connector: a spine joining a matchup, and a stub reaching the next round */
+.bkgrp.link:before{{content:"";position:absolute;right:-15px;top:20px;bottom:20px;
+ width:2px;background:{C['axis']};border-radius:1px}}
+.bkgrp.link:after{{content:"";position:absolute;right:-15px;top:50%;width:10px;height:2px;
+ background:{C['axis']}}}
+
+.bknode{{position:relative;display:flex;align-items:center;gap:9px;padding:9px 11px;
+ border-radius:9px;background:{C['card2']};border:1.5px solid transparent;
+ overflow:hidden;transition:border-color .25s}}
+.bkfill{{position:absolute;left:0;top:0;bottom:0;background:rgba(28,95,173,.11);
+ transition:width .45s cubic-bezier(.2,.7,.3,1)}}
+.bkseed,.bkteam,.bkpct{{position:relative}}
+.bkseed{{width:12px;flex:none;font-size:10px;font-weight:800;color:{C['mute']};
  font-variant-numeric:tabular-nums}}
-.bkseat.you .bksd{{color:{C['brand']}}}
-.bktm{{font-size:14px;font-weight:800;color:{C['navy']};letter-spacing:-.01em}}
-.bkp{{margin-left:auto;font-size:11px;color:{C['ink2']};font-variant-numeric:tabular-nums}}
-.bkto{{font-size:10px;color:{C['mute']};letter-spacing:.02em;padding:2px 0 0 2px}}
-@media(max-width:700px){{.bkwrap{{grid-template-columns:1fr;gap:16px}}}}
+.bkdash{{color:{C['axis']}}}
+.bkteam{{font-size:14px;font-weight:800;color:{C['navy']};letter-spacing:-.01em}}
+.bkpct{{margin-left:auto;font-size:11px;color:{C['ink2']};
+ font-variant-numeric:tabular-nums}}
+.bknode.you{{border-color:{C['brand']}}}
+.bknode.you .bkfill{{background:rgba(28,95,173,.20)}}
+.bknode.you .bkseed,.bknode.you .bkteam{{color:{C['brand']}}}
+.bknode.champ{{background:{C['navy']};padding:13px}}
+.bknode.champ .bkteam{{color:#fff;font-size:16px}}
+.bknode.champ .bkpct{{color:rgba(255,255,255,.72)}}
+.bknode.champ .bkseed{{display:none}}
+.bknode.champ .bkfill{{background:rgba(255,255,255,.13)}}
+.bknode.champ.you{{background:{C['brand']}}}
+@media(max-width:760px){{
+ .bkhdr{{display:none}}
+ .bkbody{{grid-template-columns:1fr;gap:16px;min-height:0}}
+ .bkcol{{padding-right:0;justify-content:flex-start;gap:10px}}
+ .bkcol:before{{content:attr(data-round);font-size:9.5px;font-weight:800;
+  letter-spacing:.09em;text-transform:uppercase;color:{C['mute']};
+  padding-bottom:6px;border-bottom:1px solid {C['grid']}}}
+ .bkgrp.link:before,.bkgrp.link:after{{display:none}}
+}}
 
 /* ---- around the league ---- */
 .algrid{{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:4px}}
