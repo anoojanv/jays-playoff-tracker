@@ -1,66 +1,57 @@
-"""Export the model (talent, schedule, series structure) for the in-browser simulator."""
+"""Export the model for the in-browser simulator.
+
+The browser re-simulates the focus conference only. Nothing the page lets a reader change
+— Toronto's points, a rival running hot or cold — can move a game between two clubs of the
+other conference, so those games are left out and each re-run stays fast. The other
+conference's champion, needed for the Final, is sampled from the Python run.
+"""
 import json
 import data as D
 import model
-from model import JAYS, AL_TEAMS, games, series, jays_game_ix, p_home
+from model import (FOCUS, TEAMS, idx, CONF, FOCUS_CONF, CONF_TEAMS, games, p_home,
+                   talent, SERIES)
 
 st = model.load_state()
-jays_in = st.jays_in
+R = json.load(open("results.json"))
 
-AL_IDX = {t: i for i, t in enumerate(AL_TEAMS)}
-
-gH, gA, gP, gJ = [], [], [], []      # home idx, away idx, P(home win), jays-game slot (-1 if none)
-jays_game_slots = {}
+gH, gA, gP, gJ = [], [], [], []
 slot = 0
 for i, (date, a, h) in enumerate(games):
-    hi = AL_IDX.get(h, -1)
-    ai = AL_IDX.get(a, -1)
-    gH.append(hi); gA.append(ai); gP.append(round(float(p_home[i]), 6))
-    if JAYS in (a, h):
-        gJ.append(slot)
-        jays_game_slots[i] = slot
-        slot += 1
+    if CONF[a] != FOCUS_CONF and CONF[h] != FOCUS_CONF:
+        continue
+    gH.append(idx[h]); gA.append(idx[a]); gP.append(round(float(p_home[i]), 5))
+    if FOCUS in (a, h):
+        gJ.append(slot); slot += 1
     else:
         gJ.append(-1)
 
-# series structure, aligned with analyze.py's `series`
-PATH = json.load(open("path.json"))["series_path"]
-ser = []
-for si, s in enumerate(series):
-    idxs = [jays_game_slots[jays_game_ix[k]] for k in s["ix"]]
-    ser.append({
-        "opp": s["opp"], "home": s["home"], "n": len(idxs),
-        "start": s["start"], "end": s["end"],
-        "slots": idxs,
-        "need": round(PATH[si]["need"], 3),
-        "exp": round(PATH[si]["exp"], 3),
-        # is the Jays the home team in each game of this series?
-        "jaysHome": [games[jays_game_ix[k]][2] == JAYS for k in s["ix"]],
-    })
+conf_idx = [idx[t] for t in CONF_TEAMS[FOCUS_CONF]]
+divs = [[idx[t] for t in D.DIVISIONS[d]] for d in D.CONFERENCES[FOCUS_CONF]]
+
+# the other conference's champion, as the Python run found it in the seasons where
+# Toronto qualified — the only thing the Final needs from the other side
+B = R.get("bracket") or {}
+other = "Wcf" if FOCUS_CONF == "Eastern" else "Ecf"
+champs = [{"t": idx[r["team"]], "p": r["p"],
+           "pts": round(R["teams"][r["team"]]["proj_pts"], 2)}
+          for r in (B.get("nodes", {}).get(other) or [])]
 
 out = {
-    "teams": AL_TEAMS,
-    "abbr": ["TOR" if t == "Blue Jays" else
-             {"Yankees": "NYY", "Red Sox": "BOS", "Rays": "TB", "Orioles": "BAL",
-              "White Sox": "CWS", "Tigers": "DET", "Twins": "MIN", "Guardians": "CLE",
-              "Royals": "KC", "Astros": "HOU", "Rangers": "TEX", "Mariners": "SEA",
-              "Athletics": "ATH", "Angels": "LAA"}[t] for t in AL_TEAMS],
-    "baseW": [D.AL[t][0] for t in AL_TEAMS],
-    "baseL": [D.AL[t][1] for t in AL_TEAMS],
-    "divs": [[AL_IDX[m] for m in mem] for mem in D.DIVISIONS.values()],
-    "divNames": list(D.DIVISIONS),
+    "teams": TEAMS,
+    "names": [D.TEAMS[t]["name"] for t in TEAMS],
+    "confIdx": conf_idx, "divs": divs, "divNames": list(D.CONFERENCES[FOCUS_CONF]),
+    "basePts": [D.points(t) for t in TEAMS],
+    "baseRw": [D.TEAMS[t]["rw"] for t in TEAMS],
     "gH": gH, "gA": gA, "gP": gP, "gJ": gJ,
-    "series": ser,
-    # talent and the home edge, so the browser can price a playoff series the same way
-    # the Python model does rather than reading a number off a table
-    "talent": [round(float(model.talent[t]), 6) for t in AL_TEAMS],
-    "hfa": model.HFA_ODDS,
-    "formats": model.FORMATS,
-    "jaysIdx": AL_IDX[JAYS],
-    "nJaysGames": slot,
-    "baselineOdds": float(jays_in.mean()),
+    "nFocusGames": slot,
+    "focusIdx": idx[FOCUS],
+    "talent": [round(float(talent[t]), 6) for t in TEAMS],
+    "hfa": model.HFA_ODDS, "pOt": model.P_OT, "series": SERIES,
+    "otherChamps": champs,
+    "baselineOdds": float(st.focus_in.mean()),
 }
 json.dump(out, open("simdata.json", "w"), separators=(",", ":"))
-print(f"games {len(gH)}  jays games {slot}  series {len(ser)}")
-print(f"simdata.json {len(json.dumps(out, separators=(',',':')))/1024:.1f} KB")
-print(f"python baseline odds {out['baselineOdds']*100:.2f}%")
+print(f"browser games {len(gH)} of {len(games)} (focus conference only)  "
+      f"focus games {slot}")
+print(f"simdata.json {len(json.dumps(out, separators=(',', ':'))) / 1024:.1f} KB  "
+      f"· python baseline {out['baselineOdds'] * 100:.2f}%")

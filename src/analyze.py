@@ -1,102 +1,41 @@
-"""Path analysis: what a qualifying season actually looks like, series by series."""
-import json, collections, math
+"""What it takes: the rest-of-season points Toronto needs, and at what pace.
+
+The baseball version of this file broke the run-in into three-game series and asked what a
+qualifying season took from each. Hockey has no series in the regular season — clubs meet
+for one game and move on — so what is left is the total and the pace.
+"""
+import json, math
 import numpy as np
 import data as D
 import model
-from model import JAYS, TEAMS, talent, series, rem
+from model import FOCUS, rem
 
 st = model.load_state()
-jays_won, jays_in, jays_wins = st.jays_won, st.jays_in, st.jays_wins
-
-# the win total a qualifying season is aimed at — the simulated median cut line, not a
-# number frozen into the source on the day this was written
+fin, fpts = st.focus_in, st.focus_pts
 R = json.load(open("results.json"))
-CUT = R["cut_wins"]["p50"]
-TARGET_W = int(math.ceil(CUT))
 
-# Every number below is conditioned on qualifying. Once a club is mathematically out,
-# nothing qualifies, the conditional means are all NaN, and int(ceil(NaN)) killed the
-# build — on exactly the day the page most needs to keep publishing.
-NQ = int(jays_in.sum())
+NQ = int(fin.sum())
+GL = int(rem[FOCUS])
+now = D.points(FOCUS)
+need = R["ros_needed"]
 
 
 def cond(vals, mask, default):
-    """Mean of vals over mask, or `default` when the mask selects nothing."""
     return float(vals[mask].mean()) if mask.any() else float(default)
 
 
-path = {}
-# conditional on making the playoffs, how did each series go?
-rows = []
-for s in series:
-    sw = jays_won[s["ix"]].sum(axis=0)
-    n = len(s["ix"])
-    e_all = float(sw.mean())
-    # with no qualifying seasons the honest answer is "you needed all of them"
-    e_in = cond(sw, jays_in, n)
-    e_out = cond(sw, ~jays_in, e_all)
-    # P(in | won the series)
-    won_series = sw > n / 2
-    rows.append({
-        "opp": s["opp"], "home": s["home"], "start": s["start"], "end": s["end"], "n": n,
-        "opp_rec": f"{TEAMS[s['opp']][0]}-{TEAMS[s['opp']][1]}",
-        "opp_talent": round(talent[s["opp"]], 4),
-        "exp": e_all, "need": e_in, "if_out": e_out,
-        "target": int(np.ceil(min(e_in, n) - 1e-9)),
-        "p_in_if_win_series": cond(jays_in, won_series, 0.0),
-        "p_in_if_lose_series": cond(jays_in, ~won_series, 0.0),
-        "swing_series": cond(jays_in, won_series, 0.0) - cond(jays_in, ~won_series, 0.0),
-        "cond": {int(w): [float(jays_in[sw == w].mean()), float((sw == w).mean())]
-                 for w in range(n + 1) if (sw == w).sum() >= 80},
-    })
-
-# rest-of-season record needed to reach the median cut line, clamped to the games that
-# are actually left (a club already past the cut line needs 0, not a negative number)
-ros_w = min(int(rem[JAYS]), max(0, TARGET_W - D.AL[JAYS][0]))
-ros_l = int(rem[JAYS]) - ros_w
-ros_pct = ros_w / rem[JAYS] if rem[JAYS] else 0.0
-
-print(f"{'series':<28} {'opp':<10} {'exp':>5} {'need':>5} {'tgt':>4} {'win-swing':>10}")
-tot_need = 0
-for r in rows:
-    tot_need += r["need"]
-    tag = f"{'vs' if r['home'] else '@'} {r['opp']}"
-    print(f"{r['start'][5:]}-{r['end'][5:]} {tag:<18} {r['opp_rec']:<10} "
-          f"{r['exp']:5.2f} {r['need']:5.2f} {r['target']:4d} {r['swing_series']*100:9.1f}")
-print(f"\nsum of E[wins|qualify] across series = {tot_need:.1f} of {sum(r['n'] for r in rows)}")
-print(f"E[total wins | qualify] = {cond(jays_wins, jays_in, float('nan')):.1f}"
-      + ("   (no qualifying seasons — Toronto is mathematically out)" if not NQ else ""))
-print(f"rest-of-season record needed for median cutline ({TARGET_W}W): "
-      f"{ros_w}-{ros_l} ({ros_pct:.3f})")
-
-# series records in qualifying seasons
-sweeps = {}
-for r in rows:
-    sweeps[f"{r['start']}"] = r
-srec = []
-for s in series:
-    sw = jays_won[s["ix"]].sum(axis=0)
-    srec.append(sw)
-srec = np.array(srec)
-won_series_ct = (srec > np.array([[len(s["ix"])] for s in series]) / 2).sum(axis=0)
-print(f"\nseries won (of {len(series)}): all sims {won_series_ct.mean():.1f} | "
-      f"qualifying sims {cond(won_series_ct, jays_in, float('nan')):.1f}")
-dist_in = collections.Counter(won_series_ct[jays_in].tolist())
-print("distribution of series won in qualifying seasons:",
-      {k: round(v / NQ * 100, 1) for k, v in sorted(dist_in.items())} if NQ else "none")
-
+gained = fpts.astype(np.int32) - now
 out = {
-    "series_path": rows,
-    "series_won_needed": cond(won_series_ct, jays_in, len(series)),
-    "series_won_typical": float(won_series_ct.mean()),
-    "n_series": len(series),
-    "e_wins_if_qualify": cond(jays_wins, jays_in, float(jays_wins.max())),
-    "n_qualifying_sims": NQ,
-    "cut_target_w": TARGET_W,
-    "ros_needed_w": ros_w,
-    "ros_needed_l": ros_l,
-    "ros_needed_pct": ros_pct,
-    "series_won_dist_qualify": ({int(k): float(v / NQ) for k, v in sorted(dist_in.items())}
-                                if NQ else {}),
+    "cut_target": R["cut_target"],
+    "ros_needed_pts": need,
+    "ros_games": GL,
+    "ros_pace": (need / (2 * GL)) if GL else 0.0,       # as a points percentage
+    "season_pace": (now / (2 * D.played(FOCUS))) if D.played(FOCUS) else None,
+    "gained_if_qualify": cond(gained, fin, 2 * GL),
+    "gained_all": float(gained.mean()),
+    "n_qualifying": NQ,
 }
 json.dump(out, open("path.json", "w"), indent=1)
+print(f"to reach {R['cut_target']} points: {need} of the {2 * GL} available "
+      f"({out['ros_pace']:.3f} pace) · qualifying seasons take "
+      f"{out['gained_if_qualify']:.1f}, all seasons {out['gained_all']:.1f}")

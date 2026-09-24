@@ -1,119 +1,67 @@
 """
 The rivals the page talks about are read off the standings, not typed into the source.
 
-In September 2026 the live page was still calling the Rangers, Tigers, Guardians and
-Twins "the cluster" — a list written in August — while the Tigers were six back with no
-chance and the club actually holding the last spot was not in it. These cases pin down
-what the derived list must do instead.
+In September 2026 the Blue Jays page this replaced was still calling a list written in
+August "the cluster", while the club actually holding the last spot was not in it. These
+cases pin down what the derived list must do instead.
 
 Run:  python tests/test_rivals.py
 """
-import json, os, shutil, sys, importlib
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
-SRC = os.path.join(ROOT, "src")
-FIXTURE = os.path.join(HERE, "fixture_data.json")
-
-_build = os.path.join(ROOT, "build")
-_data = os.path.join(_build, "data.json")
-os.makedirs(_build, exist_ok=True)
-sys.path.insert(0, SRC)
-os.chdir(SRC)
-
-CASES = []
+import sys
+from _harness import case, run, load
 
 
-def case(name):
-    def deco(fn):
-        CASES.append((name, fn))
-        return fn
-    return deco
-
-
-def load(edit=None):
-    """Import model against the fixture, optionally with the AL standings doctored."""
-    data = json.load(open(FIXTURE))
-    if edit:
-        edit(data["AL"])
-    json.dump(data, open(_data, "w"))
-    for m in ("data", "model"):
-        sys.modules.pop(m, None)
-    return importlib.import_module("model")
-
-
-@case("the cluster is the clubs within range of Toronto, leaders excluded")
+@case("the cluster is the conference clubs projected within range of Toronto")
 def _():
-    model = load()
-    al = json.load(open(FIXTURE))["AL"]
-    pct = lambda t: al[t][0] / (al[t][0] + al[t][1])
-    leaders = {max(m, key=pct) for m in model.D.DIVISIONS.values()}
-    for t in model.CLUSTER:
-        assert t != model.JAYS
-        assert t not in leaders, t
-        assert abs(model.games_back(t)) <= model.CLUSTER_GB, (t, model.games_back(t))
-    # and nothing in range was left out
-    for t in al:
-        if t != model.JAYS and t not in leaders and abs(model.games_back(t)) <= model.CLUSTER_GB:
-            assert t in model.CLUSTER, t
+    m = load()
+    me = m.PROJ["TOR"]
+    for t in m.CLUSTER:
+        assert m.CONF[t] == "Eastern" and t != "TOR"
+        assert abs(m.PROJ[t] - me) <= m.CLUSTER_PTS, t
+    for t in m.CONF_TEAMS["Eastern"]:
+        if t != "TOR" and abs(m.PROJ[t] - me) <= m.CLUSTER_PTS:
+            assert t in m.CLUSTER, f"{t} is in range but missing"
 
 
-@case("a club that falls out of the race falls out of the cluster")
+@case("a Western club is never a rival, however close its points")
 def _():
-    def bury(al):
-        al["Tigers"] = [40, 83, 400, 600]           # 20-odd games back
-    model = load(bury)
-    assert "Tigers" not in model.CLUSTER, model.CLUSTER
+    m = load()
+    assert not any(m.CONF[t] == "Western" for t in m.CLUSTER + m.RIVALS)
 
 
-@case("a club that climbs into the race is picked up")
+@case("the list follows the standings: a club that surges joins it")
 def _():
-    def surge(al):
-        # from nine back to six back of Toronto's 67-56, still behind the White Sox
-        # for the Central lead, so it is a chaser rather than a leader
-        al["Royals"] = [61, 62, 530, 540]
-    model = load(surge)
-    assert "Royals" in model.CLUSTER, model.CLUSTER
+    m = load()
+    far = min(m.CONF_TEAMS["Eastern"], key=lambda t: m.PROJ[t])
+    assert far not in m.CLUSTER
+
+    def edit(d):
+        # the same games played, now with Toronto's exact record and goals
+        mine = d["TEAMS"]["TOR"]
+        d["TEAMS"][far].update({k: mine[k] for k in ("w", "l", "otl", "gf", "ga", "rw")})
+    m2 = load(edit)
+    assert far in m2.CLUSTER, (far, m2.PROJ[far], m2.PROJ["TOR"])
 
 
-@case("there is always a race to describe, even with nobody close")
+@case("a club running away from everyone still has two rivals to describe")
 def _():
-    def runaway(al):
-        al["Blue Jays"] = [100, 23, 700, 400]
-    model = load(runaway)
-    assert len(model.CLUSTER) >= 2, model.CLUSTER
+    def edit(d):
+        r = d["TEAMS"]["TOR"]
+        r["w"], r["l"], r["otl"] = r["w"] + r["l"] + r["otl"], 0, 0
+        r["gf"] += 100
+    m = load(edit)
+    assert len(m.CLUSTER) >= 2
+    others = sorted((t for t in m.CONF_TEAMS["Eastern"] if t != "TOR"),
+                    key=lambda t: abs(m.PROJ[t] - m.PROJ["TOR"]))
+    assert set(others[:2]) <= set(m.CLUSTER)
 
 
-@case("every other AL club is a candidate for scoreboard watching")
+@case("every other Eastern club is a candidate for the scoreboard panel")
 def _():
-    model = load()
-    assert model.JAYS not in model.RIVALS
-    assert len(model.RIVALS) == 14, model.RIVALS
-
-
-def main():
-    saved = open(_data).read() if os.path.exists(_data) else None
-    fails = []
-    try:
-        for name, fn in CASES:
-            try:
-                fn()
-                print(f"  OK    {name}")
-            except AssertionError as e:
-                print(f"  FAIL  {name}\n        {e}")
-                fails.append(name)
-    finally:
-        if saved is not None:
-            open(_data, "w").write(saved)
-        else:
-            shutil.copyfile(FIXTURE, _data)
-    print("\n" + "=" * 58)
-    if fails:
-        print(f"RIVALS TEST FAILED ({len(fails)} of {len(CASES)})")
-        return 1
-    print(f"RIVALS TEST PASSED — all {len(CASES)} cases")
-    return 0
+    m = load()
+    assert sorted(m.RIVALS) == sorted(t for t in m.CONF_TEAMS["Eastern"] if t != "TOR")
+    assert len(m.RIVALS) == 15
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run("RIVALS TEST"))

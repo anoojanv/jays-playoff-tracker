@@ -7,199 +7,185 @@ snapshot rots (the schedule empties, the records stop matching the standings) an
 be regenerated without network access, whereas this can be rebuilt from nothing at any
 time and always reconciles.
 
-Construction guarantees the invariant the whole pipeline is built on: the schedule is
-generated first, then each club's games-played is set to 162 minus what it has left, so
-all 15 AL clubs reconcile to exactly 162 by construction.
+It is built the way the live data is: a full 84-game schedule for all 32 clubs first,
+then the first PLAYED rounds are played out with a seeded coin, and every record is
+summed from those games by fetch_data.build_records itself. So every club reconciles to
+84 by construction, and the fixture exercises the same code path real standings take.
 
   python tests/make_fixture.py        # rewrite tests/fixture_data.json
 """
-import json, os, re, sys, datetime, importlib.util
+import json, os, re, sys, random, datetime, importlib.util
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 OUT = os.path.join(HERE, "fixture_data.json")
 
+os.environ.setdefault("TEAM", "TOR")
+os.environ.setdefault("SEASON", "20262027")
 spec = importlib.util.spec_from_file_location(
     "fd", os.path.join(ROOT, "src", "fetch_data.py"))
 fd = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fd)
 
-SEASON = 2026
-AS_OF = "2026-08-14"          # the last day on which games finished
-FIRST = datetime.date(2026, 8, 15)
-SEASON_END = datetime.date(2026, 10, 4)
+SEASON_GAMES = 84
+FIRST = datetime.date(2026, 10, 7)
+PLAYED = 50                   # rounds already played; each club plays once per round
+SEED = 84
 
-AL_TEAMS = [t for members in fd.DIVISIONS.values() for t in members]
-NL_TEAMS = ["Braves", "Phillies", "Marlins", "Nationals", "Mets",
-            "Brewers", "Cubs", "Cardinals", "Reds", "Pirates",
-            "Dodgers", "Padres", "D-backs", "Giants", "Rockies"]
-
-N_SERIES = 13                 # per club
-SERIES_LEN = 3
+# abbrev: (city, name, conference, division, last season's points share)
+CLUBS = {
+    "BOS": ("Boston", "Bruins", "Eastern", "Atlantic", .560),
+    "BUF": ("Buffalo", "Sabres", "Eastern", "Atlantic", .600),
+    "DET": ("Detroit", "Red Wings", "Eastern", "Atlantic", .530),
+    "FLA": ("Florida", "Panthers", "Eastern", "Atlantic", .545),
+    "MTL": ("Montréal", "Canadiens", "Eastern", "Atlantic", .575),
+    "OTT": ("Ottawa", "Senators", "Eastern", "Atlantic", .580),
+    "TBL": ("Tampa Bay", "Lightning", "Eastern", "Atlantic", .625),
+    "TOR": ("Toronto", "Maple Leafs", "Eastern", "Atlantic", .555),
+    "CAR": ("Carolina", "Hurricanes", "Eastern", "Metropolitan", .640),
+    "CBJ": ("Columbus", "Blue Jackets", "Eastern", "Metropolitan", .540),
+    "NJD": ("New Jersey", "Devils", "Eastern", "Metropolitan", .525),
+    "NYI": ("New York", "Islanders", "Eastern", "Metropolitan", .545),
+    "NYR": ("New York", "Rangers", "Eastern", "Metropolitan", .500),
+    "PHI": ("Philadelphia", "Flyers", "Eastern", "Metropolitan", .550),
+    "PIT": ("Pittsburgh", "Penguins", "Eastern", "Metropolitan", .565),
+    "WSH": ("Washington", "Capitals", "Eastern", "Metropolitan", .570),
+    "CHI": ("Chicago", "Blackhawks", "Western", "Central", .430),
+    "COL": ("Colorado", "Avalanche", "Western", "Central", .670),
+    "DAL": ("Dallas", "Stars", "Western", "Central", .630),
+    "MIN": ("Minnesota", "Wild", "Western", "Central", .600),
+    "NSH": ("Nashville", "Predators", "Western", "Central", .520),
+    "STL": ("St. Louis", "Blues", "Western", "Central", .510),
+    "UTA": ("Utah", "Mammoth", "Western", "Central", .560),
+    "WPG": ("Winnipeg", "Jets", "Western", "Central", .540),
+    "ANA": ("Anaheim", "Ducks", "Western", "Pacific", .570),
+    "CGY": ("Calgary", "Flames", "Western", "Pacific", .470),
+    "EDM": ("Edmonton", "Oilers", "Western", "Pacific", .590),
+    "LAK": ("Los Angeles", "Kings", "Western", "Pacific", .540),
+    "SEA": ("Seattle", "Kraken", "Western", "Pacific", .520),
+    "SJS": ("San Jose", "Sharks", "Western", "Pacific", .500),
+    "VAN": ("Vancouver", "Canucks", "Western", "Pacific", .450),
+    "VGK": ("Vegas", "Golden Knights", "Western", "Pacific", .600),
+}
+LEAGUE = {"p_ot": 0.2485, "home_win": 0.5221}
 
 
 def schedule():
-    """13 three-game series per AL club, via the circle method on 16 slots.
+    """84 rounds of the circle method on 32 clubs, one round every other day.
 
-    Slot 15 is a stand-in for "an interleague opponent", so exactly one AL club per
-    round plays an NL club instead of sitting out. Every AL club therefore plays every
-    round, which is what makes the per-club game count uniform.
+    Every club plays exactly once per round, so every club plays exactly 84 games. Home
+    ice alternates with the round, so no club is lopsided home or away.
     """
-    slots = list(range(15)) + [None]           # None == the interleague slot
-    dates, d = [], FIRST
-    while len(dates) < N_SERIES * SERIES_LEN:
-        dates.append(d)
-        # an off day between series keeps the calendar realistic and lands the last
-        # game on the season-end date
-        if len(dates) % SERIES_LEN == 0:
-            d += datetime.timedelta(days=2)
-        else:
-            d += datetime.timedelta(days=1)
-    assert dates[-1] <= SEASON_END, f"schedule runs past the season ({dates[-1]})"
-
+    teams = sorted(CLUBS)
+    fixed, rot = teams[0], teams[1:]
     games = []
-    rot = slots[1:]
-    for r in range(N_SERIES):
-        order = [slots[0]] + rot
-        pairs = [(order[i], order[len(order) - 1 - i]) for i in range(len(order) // 2)]
-        for pi, (x, y) in enumerate(pairs):
-            if x is None or y is None:
-                al = fd_name(x if y is None else y)
-                nl = NL_TEAMS[(r * 3 + pi) % len(NL_TEAMS)]
-                # the interleague club alternates home and road by round
-                home, away = (al, nl) if r % 2 == 0 else (nl, al)
-            else:
-                a, b = fd_name(x), fd_name(y)
-                home, away = (a, b) if (r + pi) % 2 == 0 else (b, a)
-            for k in range(SERIES_LEN):
-                games.append([dates[r * SERIES_LEN + k].isoformat(), away, home])
-        rot = [rot[-1]] + rot[:-1]             # rotate all but the fixed slot
-    games.sort()
+    for r in range(SEASON_GAMES):
+        order = [fixed] + rot
+        date = (FIRST + datetime.timedelta(days=2 * r)).isoformat()
+        for i in range(len(order) // 2):
+            x, y = order[i], order[len(order) - 1 - i]
+            home, away = (x, y) if (r + i) % 2 == 0 else (y, x)
+            games.append({"round": r, "date": date, "away": away, "home": home})
+        rot = [rot[-1]] + rot[:-1]
     return games
 
 
-def fd_name(slot):
-    return AL_TEAMS[slot]
-
-
-def runs(gp, win_pct, pythag_offset):
-    """Pick runs scored/allowed so Pythagenpat lands `pythag_offset` off the real W-L.
-
-    A club with a positive offset has underperformed its run differential (the model
-    likes it more than its record does) and vice versa, so the fixture exercises both
-    sides of the page's "won more games than the run differential supports" logic.
-    """
-    p = min(0.750, max(0.250, win_pct + pythag_offset))
-    rpg = 8.8
-    total = rpg * gp
-    x = rpg ** 0.287
-    ratio = (p / (1 - p)) ** (1 / x)
-    rs = total * ratio / (1 + ratio)
-    return int(round(rs)), int(round(total - rs))
-
-
-def records(teams, games, seed_pcts, offsets):
-    """games-played is forced to 162 - (games remaining), so the fixture reconciles."""
-    rem = {t: 0 for t in teams}
-    for _, a, h in games:
-        if a in rem: rem[a] += 1
-        if h in rem: rem[h] += 1
+def prior():
+    """Last season's final records, from the points shares above."""
     out = {}
-    for i, t in enumerate(teams):
-        gp = 162 - rem[t]
-        w = int(round(gp * seed_pcts[i]))
-        rs, ra = runs(gp, w / gp, offsets[i])
-        out[t] = [w, gp - w, rs, ra]
+    for t, (_, _, _, _, share) in CLUBS.items():
+        pts = round(share * 164)
+        otl = 8 + (sum(map(ord, t)) % 5)
+        w = (pts - otl) // 2
+        l = 82 - w - otl
+        gd = round((share - .55) * 300)
+        out[t] = {"w": w, "l": l, "otl": otl, "gf": 250 + max(gd, 0),
+                  "ga": 250 + max(-gd, 0), "gp": 82}
+    return out
+
+
+def play(games):
+    """Play the first PLAYED rounds with a seeded coin weighted by last season."""
+    rng = random.Random(SEED)
+    share = {t: v[4] for t, v in CLUBS.items()}
+    gid = 2026020000
+    out = []
+    for g in games:
+        gid += 1
+        rec = {"id": gid, "date": g["date"], "utc": g["date"] + "T23:00:00Z",
+               "away": g["away"], "home": g["home"], "as": None, "hs": None,
+               "period": None, "state": "FUT"}
+        if g["round"] < PLAYED:
+            a, h = share[g["away"]], share[g["home"]]
+            p_home = h * (1 - a) / (h * (1 - a) + a * (1 - h)) + 0.02
+            home_won = rng.random() < p_home
+            ot = rng.random() < LEAGUE["p_ot"]
+            win = 3 + int(rng.random() * 3) if not ot else 3
+            lose = win - 1 if ot else int(rng.random() * win)
+            rec.update(state="OFF", period=("OT" if rng.random() < .6 else "SO") if ot else "REG",
+                       hs=win if home_won else lose, **{"as": lose if home_won else win})
+        out.append(rec)
     return out
 
 
 def main():
-    games = schedule()
+    played = play(schedule())
+    teams = {t: {"name": v[1], "city": v[0], "conf": v[2], "div": v[3]}
+             for t, v in sorted(CLUBS.items())}
+    for t, r in fd.build_records(played, teams).items():
+        teams[t].update(r)
 
-    # a plausible AL spread, deliberately tight in the middle so the wild-card race is
-    # live and the conditional/leverage code paths all have something to chew on
-    pcts = [.618, .585, .553, .545, .512, .504, .496, .488, .480, .472,
-            .463, .447, .431, .415, .390]
-    # the Jays overperform their run differential, which is the case the page calls out
-    offs = [-.004, +.006, -.002, -.028, +.010, -.006, +.004, +.012, -.008, +.002,
-            +.006, -.004, +.008, -.002, +.004]
-    al = records(AL_TEAMS, games, pcts, offs)
+    divisions = {}
+    for t, v in sorted(CLUBS.items()):
+        divisions.setdefault(v[3], []).append(t)
+    conferences = {"Eastern": ["Atlantic", "Metropolitan"],
+                   "Western": ["Central", "Pacific"]}
 
-    # NL clubs only need a record: the model uses them for interleague opponent talent
-    # and for the fingerprint, and no 162 check applies to them
-    nl = {}
-    for i, t in enumerate(NL_TEAMS):
-        gp = 121 + (i % 4)
-        w = int(round(gp * (.600 - i * .014)))
-        rs, ra = runs(gp, w / gp, (-1) ** i * .006)
-        nl[t] = [w, gp - w, rs, ra]
+    remaining = sorted([g["date"], g["away"], g["home"]] for g in played
+                       if g["state"] not in fd.FINAL_STATES)
+    left = {t: 0 for t in teams}
+    for _, a, h in remaining:
+        left[a] += 1; left[h] += 1
+    bad = {t: v for t, v in teams.items()
+           if v["w"] + v["l"] + v["otl"] + left[t] != SEASON_GAMES}
+    if bad:
+        sys.exit(f"fixture does not reconcile to {SEASON_GAMES}: {bad}")
 
-    as_dicts = lambda src: {k: {"w": v[0], "l": v[1], "rs": v[2], "ra": v[3]}
-                            for k, v in src.items()}
+    as_of = max(g["date"] for g in played if g["state"] in fd.FINAL_STATES)
+    times = {f'{g["date"]}|{g["away"]}|{g["home"]}': {"utc": g["utc"], "state": "FUT"}
+             for g in played if "TOR" in (g["away"], g["home"]) and g["state"] == "FUT"}
+    rows = [{"teamAbbrev": {"default": t}, "wins": v["w"], "losses": v["l"],
+             "otLosses": v["otl"], "goalFor": v["gf"], "goalAgainst": v["ga"]}
+            for t, v in teams.items()]
+
     data = {
-        "season": SEASON,
-        "as_of": AS_OF,
-        "generated": "2026-08-15T02:07:00+00:00",   # fixed: the fixture must be stable
-        "AL": al,
-        "NL": nl,
-        "DIVISIONS": fd.DIVISIONS,
-        "GAMES": games,
-        "BREF": None,                               # never depend on a live scrape
-        "SYNTHETIC": [],
+        "season": "20262027", "season_games": SEASON_GAMES, "focus": "TOR",
+        "tracker_id": "nhl-TOR-20262027", "preseason": False, "as_of": as_of,
+        "generated": "2027-01-15T07:13:00+00:00",   # fixed: the fixture must be stable
+        "TEAMS": teams, "PRIOR": prior(), "LEAGUE": LEAGUE,
+        "DIVISIONS": divisions, "CONFERENCES": conferences,
+        "GAMES": remaining, "TIMES": times,
+        "RECENT": fd.recent_form(played, "TOR"),
         # empty: a fixture build starts its own history, so nothing to freeze
         "HISTORY": "",
-        # 14 completed games ending the day before AS_OF, alternating opponents, with a
-        # deliberate late hot streak so the momentum rating is non-zero and testable
-        "RECENT": [
-            {"date": d, "opp": o, "home": h, "won": w} for d, o, h, w in [
-                ("2026-08-01", "Yankees", True, False), ("2026-08-02", "Yankees", True, False),
-                ("2026-08-03", "Yankees", True, True), ("2026-08-04", "Royals", False, False),
-                ("2026-08-05", "Royals", False, True), ("2026-08-06", "Royals", False, False),
-                ("2026-08-08", "Rays", False, False), ("2026-08-09", "Rays", False, True),
-                ("2026-08-10", "Athletics", True, True), ("2026-08-11", "Athletics", True, True),
-                ("2026-08-12", "Angels", True, True), ("2026-08-13", "Angels", True, True),
-                ("2026-08-14", "Red Sox", False, True), ("2026-08-14", "Red Sox", False, True),
-            ]
-        ],
-        # a spread of injury cases so the table's three return states all render:
-        # a derived IL-minimum date, a hand-entered reported timeline, and an unknown
-        "INJURIES": [
-            {"name": "Dalton Reyes", "pos": "SP", "status": "15-Day Injured List",
-             "il_days": 15, "since": "2026-08-06", "eligible": "2026-08-21",
-             "note": None},
-            {"name": "Marcus Whitfield", "pos": "OF", "status": "10-Day Injured List",
-             "il_days": 10, "since": "2026-08-12", "eligible": "2026-08-22",
-             "note": None},
-            {"name": "Elias Thorne", "pos": "RP", "status": "60-Day Injured List",
-             "il_days": 60, "since": "2026-07-02", "eligible": "2026-08-31",
-             "note": "throwing off a mound, no rehab date set"},
-            {"name": "Nate Kowalski", "pos": "C", "status": "7-Day Injured List",
-             "il_days": 7, "since": None, "eligible": None, "note": None},
-        ],
-        "fingerprint": fd.fingerprint(as_dicts(al), as_dicts(nl)),
+        "fingerprint": fd.fingerprint(rows),
     }
 
-    rem = {t: 0 for t in al}
-    for _, a, h in games:
-        if a in rem: rem[a] += 1
-        if h in rem: rem[h] += 1
-    bad = {t: al[t][0] + al[t][1] + rem[t] for t in al
-           if al[t][0] + al[t][1] + rem[t] != 162}
-    if bad:
-        sys.exit(f"fixture does not reconcile to 162: {bad}")
-
-    # indent=1 puts every scalar on its own line, which turns a 15-club table and a
-    # 312-game schedule into ~1,800 lines and makes any real change unreviewable.
-    # Collapse the leaf arrays — a record, a game, a division — onto one line each.
-    txt = json.dumps(data, indent=1)
+    # indent=1 puts every scalar on its own line, which turns a 32-club table and a
+    # 544-game schedule into thousands of lines and makes any real change unreviewable.
+    # Collapse the leaf arrays and the small records onto one line each.
+    txt = json.dumps(data, indent=1, ensure_ascii=False)
     txt = re.sub(r"\[\s+([^\[\]{}]+?)\s+\]",
                  lambda m: "[" + " ".join(m.group(1).split()) + "]", txt)
-    with open(OUT, "w") as f:
+    txt = re.sub(r"\{\s+([^\[\]{}]+?)\s+\}",
+                 lambda m: "{" + " ".join(m.group(1).split()) + "}", txt)
+    with open(OUT, "w", encoding="utf-8") as f:
         f.write(txt + "\n")
+    tor = teams["TOR"]
     print(f"wrote {OUT}")
-    print(f"  {len(games)} remaining games, {len(al)} AL / {len(nl)} NL clubs")
-    print(f"  every AL club at 162 · Blue Jays "
-          f"{al['Blue Jays'][0]}-{al['Blue Jays'][1]}, {rem['Blue Jays']} to play")
+    print(f"  {len(remaining)} remaining games, {len(teams)} clubs, all at {SEASON_GAMES}")
+    print(f"  Maple Leafs {tor['w']}-{tor['l']}-{tor['otl']} "
+          f"({2 * tor['w'] + tor['otl']} pts), {left['TOR']} to play, through {as_of}")
     print(f"  fingerprint {data['fingerprint']}")
 
 

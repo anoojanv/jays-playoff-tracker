@@ -32,18 +32,20 @@ cc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cc)
 
 PAGE = ('<!DOCTYPE html><html><head><meta charset="utf-8">'
+        '<meta name="tracker-id" content="nhl-TOR-20262027">'
         '<meta name="data-fingerprint" content="{fp}">'
-        '</head><body>Blue Jays</body></html>')
+        '</head><body>Maple Leafs</body></html>')
 
 
-def as_dicts(src):
-    return {k: {"w": v[0], "l": v[1], "rs": v[2], "ra": v[3]} for k, v in src.items()}
+def rows_of(teams):
+    """The fixture's records, shaped like the NHL's /standings/now rows."""
+    return [{"teamAbbrev": {"default": t}, "wins": v["w"], "losses": v["l"],
+             "otLosses": v["otl"], "goalFor": v["gf"], "goalAgainst": v["ga"]}
+            for t, v in teams.items()]
 
 
-def standings_stub(al, nl):
-    def _s(league):
-        return as_dicts(al if league == 103 else nl)
-    return _s
+def standings_stub(teams):
+    return lambda: ("20262027", rows_of(teams))
 
 
 class _Resp(io.BytesIO):
@@ -60,9 +62,9 @@ def urlopen_stub(body):
     return _open
 
 
-def run_case(name, al, nl, expect, live_html, force=False):
+def run_case(name, teams, expect, live_html, force=False):
     """live_html is the body the published page returns, or None to fail the request."""
-    cc.fd.standings = standings_stub(al, nl)
+    cc.fd.standings_now = standings_stub(teams)
     urllib.request.urlopen = urlopen_stub(live_html)
     os.environ["FORCE_BUILD"] = "true" if force else ""
     os.environ.pop("GITHUB_OUTPUT", None)
@@ -81,49 +83,54 @@ _REAL_URLOPEN = urllib.request.urlopen
 
 
 def main():
-    AL = {k: list(v) for k, v in BASE["AL"].items()}
-    NL = {k: list(v) for k, v in BASE["NL"].items()}
-    fp_now = cc.fd.fingerprint(as_dicts(AL), as_dicts(NL))
+    T = {k: dict(v) for k, v in BASE["TEAMS"].items()}
+    fp_now = cc.fd.fingerprint(rows_of(T))
 
-    AL_after = {k: list(v) for k, v in AL.items()}     # pretend the Jays just won one
-    AL_after["Blue Jays"][0] += 1
-    AL_after["Blue Jays"][2] += 5
-    AL_after["Rays"][1] += 1
-    AL_after["Rays"][3] += 5
+    after = {k: dict(v) for k, v in T.items()}         # pretend the Leafs just won one
+    after["TOR"]["w"] += 1; after["TOR"]["gf"] += 4; after["TOR"]["ga"] += 2
+    after["MTL"]["l"] += 1; after["MTL"]["gf"] += 2; after["MTL"]["ga"] += 4
 
     try:
         results = [
             run_case("nothing finished since the last publish",
-                     AL, NL, expect=False, live_html=PAGE.format(fp=fp_now)),
-            run_case("a game finished (Jays win, Rays loss)",
-                     AL_after, NL, expect=True, live_html=PAGE.format(fp=fp_now)),
+                     T, expect=False, live_html=PAGE.format(fp=fp_now)),
+            run_case("a game finished (Leafs win, Canadiens loss)",
+                     after, expect=True, live_html=PAGE.format(fp=fp_now)),
             run_case("live page unreachable",
-                     AL, NL, expect=True, live_html=None),
+                     T, expect=True, live_html=None),
             run_case("live page predates the fingerprint meta",
-                     AL, NL, expect=True,
+                     T, expect=True,
                      live_html="<html><head></head><body>old page</body></html>"),
+            run_case("live page is the Blue Jays tracker this one replaced",
+                     T, expect=True,
+                     live_html=PAGE.replace("nhl-TOR-20262027", "mlb").format(fp="0a1b2c3d4e5f6a7b")),
             run_case("live page fingerprint parsed and matches",
-                     AL, NL, expect=False, live_html=PAGE.format(fp=fp_now)),
+                     T, expect=False, live_html=PAGE.format(fp=fp_now)),
             run_case("FORCE_BUILD overrides everything",
-                     AL, NL, expect=True, live_html=PAGE.format(fp=fp_now), force=True),
+                     T, expect=True, live_html=PAGE.format(fp=fp_now), force=True),
         ]
     finally:
         urllib.request.urlopen = _REAL_URLOPEN
 
-    # the fingerprint must not depend on dict ordering
-    shuffled = dict(reversed(list(AL.items())))
-    stable = (cc.fd.fingerprint(as_dicts(AL), as_dicts(NL))
-              == cc.fd.fingerprint(as_dicts(shuffled), as_dicts(NL)))
-    print(f"--- fingerprint stable regardless of key order\n    "
+    # the fingerprint must not depend on row ordering
+    stable = cc.fd.fingerprint(rows_of(T)) == cc.fd.fingerprint(list(reversed(rows_of(T))))
+    print(f"--- fingerprint stable regardless of row order\n    "
           f"{'OK' if stable else 'FAIL'}")
     results.append(stable)
 
     # a finished game must actually move the fingerprint, or polling never rebuilds
-    moves = cc.fd.fingerprint(as_dicts(AL), as_dicts(NL)) != \
-        cc.fd.fingerprint(as_dicts(AL_after), as_dicts(NL))
+    moves = cc.fd.fingerprint(rows_of(T)) != cc.fd.fingerprint(rows_of(after))
     print(f"--- fingerprint changes when a game finishes\n    "
           f"{'OK' if moves else 'FAIL'}")
     results.append(moves)
+
+    # an overtime loss is a point in the standings, so it must move it too
+    otl = {k: dict(v) for k, v in T.items()}
+    otl["TOR"]["otl"] += 1
+    moves_otl = cc.fd.fingerprint(rows_of(T)) != cc.fd.fingerprint(rows_of(otl))
+    print(f"--- fingerprint changes on an overtime loss\n    "
+          f"{'OK' if moves_otl else 'FAIL'}")
+    results.append(moves_otl)
 
     print("\n" + "=" * 58)
     if all(results):

@@ -2,7 +2,7 @@ name: Tests
 
 # Runs on code changes only, never on the nightly schedule, so it costs nothing against
 # the polling budget. Both self-tests are fully offline — they read tests/fixture_data.json
-# and stub the network — so this needs no secrets and cannot be broken by MLB being down.
+# and stub the network — so this needs no secrets and cannot be broken by the NHL API being down.
 
 on:
   push:
@@ -30,20 +30,17 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: The fixture must still reconcile to 162
+      - name: The fixture is reproducible
         run: |
           python tests/make_fixture.py
           git diff --exit-code tests/fixture_data.json \
             || { echo "::error::tests/fixture_data.json is stale — re-run python tests/make_fixture.py and commit it."; exit 1; }
 
-      - name: MLB fetch layer, network mocked
+      - name: NHL fetch layer, network mocked
         run: python src/selftest_fetch.py
 
-      - name: Schedule reconciliation, both directions
+      - name: Standings built from the schedule
         run: python tests/test_reconcile.py
-
-      - name: A game still in "Game Over" reconciles
-        run: python tests/test_gameover.py
 
       - name: Polling decision, every path
         run: python src/selftest_check.py
@@ -53,6 +50,9 @@ jobs:
 
       - name: Day-over-day history and deltas
         run: python tests/test_history.py
+
+      - name: Points, overtime and the tiebreak
+        run: python tests/test_points.py
 
       - name: Strength of schedule
         run: python tests/test_sos.py
@@ -66,10 +66,10 @@ jobs:
       - name: Scoring the games Toronto is not playing
         run: python tests/test_spoiler.py
 
-      - name: Seeding the AL bracket
+      - name: Seeding and drawing the bracket
         run: python tests/test_bracket.py
 
-      - name: The page still builds once the race is decided
+      - name: The page builds preseason, mid-season and once the race is decided
         run: python tests/test_endgame.py
 
       - name: Full pipeline against the fixture

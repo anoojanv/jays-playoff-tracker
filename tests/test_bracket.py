@@ -1,251 +1,125 @@
 """
-Seeding the AL field, and who Toronto actually plays.
+Seeding and drawing the playoff bracket, NHL-style.
 
-The simulation always built the full playoff field and threw the seeding away, so the
-page could say "39% to reach the playoffs" and nothing at all about what reaching them
-looks like. Getting the format wrong would be worse than saying nothing, so the rules are
-pinned here:
-
-  * three division winners take seeds 1-3 BY RECORD — a 100-win wild card still seeds
-    behind an 85-win division winner, which is the part people get wrong
-  * the three wild cards take 4-6
-  * seeds 1 and 2 sit out the Wild Card round; 3 hosts 6, 4 hosts 5
+Top three in each division, then two wild cards. The better division winner draws the
+second wild card. Every series best of seven, home ice to the better regular season. The
+page draws the bracket as one picture — one club per seat — and the browser draws it the
+same way, so both are checked here.
 
 Run:  python tests/test_bracket.py
 """
-import os, shutil, sys
+import sys, collections
+import numpy as np
+from _harness import case, run, load
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
-SRC = os.path.join(ROOT, "src")
-
-_build = os.path.join(ROOT, "build")
-_data = os.path.join(_build, "data.json")
-if not os.path.exists(_data):
-    os.makedirs(_build, exist_ok=True)
-    shutil.copyfile(os.path.join(HERE, "fixture_data.json"), _data)
-
-sys.path.insert(0, SRC)
-os.chdir(SRC)
-
-import numpy as np  # noqa: E402
-import model  # noqa: E402
-
-JAYS = model.JAYS
-model.NSIM = 12_000
-ST = model.simulate()
-SEEDS = model.seeds_of(ST)
-B = model.bracket(ST)
-NS = SEEDS.shape[1]
-CASES = []
+model = load()
+st = model.simulate(nsim=6000, seed=3)
+rng = np.random.default_rng(5)
+ps = model.postseason(st, rng)
+bk = model.bracket(st)
 
 
-def case(name):
-    def deco(fn):
-        CASES.append((name, fn))
-        return fn
-    return deco
-
-
-@case("every season seeds exactly six distinct clubs")
+@case("seat order: division winners in 1 and 5, second and third behind them")
 def _():
-    assert SEEDS.shape == (6, NS), SEEDS.shape
-    for c in range(0, NS, 337):                      # a spread of seasons
-        col = SEEDS[:, c]
-        assert len(set(col.tolist())) == 6, col
+    s = model.seats_of(st, "Eastern")
+    d1, d2 = model.D.CONFERENCES["Eastern"]
+    for k, (div, rank) in {0: (d1, 1), 2: (d1, 2), 3: (d1, 3),
+                           4: (d2, 1), 6: (d2, 2), 7: (d2, 3)}.items():
+        for c in range(0, st.nsim, 97):
+            t = model.TEAMS[s[k, c]]
+            assert model.DIV[t] == div and st.div_rank[s[k, c], c] == rank
 
 
-@case("seeds 1-3 are the division winners, 4-6 the wild cards")
+@case("the better division winner draws the second wild card")
 def _():
-    dw, wc = ST.div_winner, ST.wc
-    cols = np.arange(NS)
-    for k in range(3):
-        assert dw[SEEDS[k], cols].all(), f"seed {k+1} is not a division winner"
-    for k in range(3, 6):
-        assert wc[SEEDS[k], cols].all(), f"seed {k+1} is not a wild card"
+    s = model.seats_of(st, "Eastern")
+    for c in range(st.nsim):
+        w1_top = st.score[s[0, c], c] > st.score[s[4, c], c]
+        top_opp, other_opp = (s[1, c], s[5, c]) if w1_top else (s[5, c], s[1, c])
+        assert st.wc_rank[top_opp, c] == 2 and st.wc_rank[other_opp, c] == 1
 
 
-@case("a division winner outranks a better-record wild card")
+@case("the eight seats are exactly the eight qualifiers")
 def _():
-    """The rule people get wrong. Seed 3 can have a worse record than seed 4."""
-    cols = np.arange(NS)
-    s3 = ST.wins[SEEDS[2], cols]
-    s4 = ST.wins[SEEDS[3], cols]
-    assert (s3 < s4).any(), "no season had a wild card out-winning the 3 seed"
-    # and it is still seeded third, which is what the assertion above already proved
+    for conf in ("Eastern", "Western"):
+        s = model.seats_of(st, conf)
+        for c in range(0, st.nsim, 53):
+            seated = set(s[:, c].tolist())
+            assert len(seated) == 8
+            q = {model.idx[t] for t in model.CONF_TEAMS[conf] if st.playoff[model.idx[t], c]}
+            assert seated == q
 
 
-@case("within each group, the better record seeds higher")
+@case("every winner comes out of the series that feeds it")
 def _():
-    cols = np.arange(NS)
-    for a, b in ((0, 1), (1, 2), (3, 4), (4, 5)):
-        hi = ST.score[SEEDS[a], cols]
-        lo = ST.score[SEEDS[b], cols]
-        assert (hi >= lo).all(), f"seed {a+1} ranked below seed {b+1}"
+    for key, (a, b) in model.FEEDERS.items():
+        assert np.all((ps[key] == ps[a]) | (ps[key] == ps[b])), key
 
 
-@case("Toronto's seed is the slot Toronto actually occupies")
+@case("home ice is worth something, and a better club wins more series")
 def _():
-    j = model.idx[JAYS]
-    in_field = (SEEDS == j).any(axis=0)
-    assert (in_field == ST.jays_in).all(), "seeded field disagrees with the odds"
+    r = np.random.default_rng(1)
+    n = 40000
+    even = model.play_series(r, np.full(n, .5), np.full(n, .5)).mean()
+    assert 0.5 < even < 0.56, even
+    better = model.play_series(r, np.full(n, .6), np.full(n, .5)).mean()
+    assert better > 0.65, better
 
 
-@case("the Wild Card pairings are 3-6 and 4-5, and 1-2 sit it out")
+@case("the drawn bracket: Toronto pinned, opposite its likeliest opponent")
 def _():
-    assert model.WC_OPPONENT == {3: 6, 6: 3, 4: 5, 5: 4}, model.WC_OPPONENT
-    assert model.BYE_SEEDS == (1, 2)
-    for s, o in model.WC_OPPONENT.items():
-        assert model.WC_OPPONENT[o] == s, "pairing is not symmetric"
-        assert s + o == 9, (s, o)
+    p = bk["focus_conf"]
+    seat = bk["best_seat"]
+    assert bk["nodes"][f"{p}{seat}"][0]["team"] == "TOR"
+    partner = {1: 2, 2: 1, 3: 4, 4: 3, 5: 6, 6: 5, 7: 8, 8: 7}[seat]
+    assert bk["nodes"][f"{p}{partner}"][0]["team"] == bk["best_seat_opponent"]
 
 
-@case("the seed distribution is a distribution, and the bye agrees with it")
+@case("the drawn bracket: one club per seat, each round from its two feeders")
 def _():
-    tot = sum(B["jays_seed"].values())
-    assert abs(tot - 1.0) < 1e-9, tot
-    bye = sum(p for k, p in B["jays_seed"].items() if k in model.BYE_SEEDS)
-    assert abs(bye - B["p_bye"]) < 1e-9, (bye, B["p_bye"])
-    host = sum(p for k, p in B["jays_seed"].items() if k in (3, 4))
-    assert abs(host - B["p_host"]) < 1e-9, (host, B["p_host"])
+    for p in ("E", "W"):
+        seated = [bk["nodes"][f"{p}{k}"][0]["team"] for k in range(1, 9)]
+        assert len(set(seated)) == 8, seated
+    for key, (a, b) in model.FEEDERS.items():
+        top = bk["nodes"][key][0]["team"]
+        assert top in (bk["nodes"][a][0]["team"], bk["nodes"][b][0]["team"]), key
 
 
-@case("the opponent is never Toronto, and a bye means no opponent")
+@case("coherent picks: pins kept, greedy fill, later slots go to the likelier feeder")
 def _():
-    tot = sum(o["p"] for o in B["jays_opponent"])
-    assert tot <= 1.0 + 1e-9, tot
-    for o in B["jays_opponent"]:
-        assert o["team"] != JAYS, "Toronto cannot play itself"
-        assert o["team"] is None or o["team"] in model.AL_TEAMS, o
-    bye = sum(o["p"] for o in B["jays_opponent"] if o["team"] is None)
-    assert abs(bye - B["p_bye"]) < 0.02, (bye, B["p_bye"])
+    C = collections.Counter
+    counts = {f"E{k}": C() for k in range(1, 9)}
+    counts["E1"].update({0: 50, 1: 40}); counts["E2"].update({0: 45, 2: 30})
+    counts["E3"].update({1: 60, 3: 10}); counts["E4"].update({4: 20})
+    for k in range(5, 9):
+        counts[f"E{k}"].update({10 + k: 30})
+    counts["Er1a"] = C({0: 30, 2: 5}); counts["Er1b"] = C({1: 25, 4: 10})
+    counts["Er1c"] = C({15: 10, 16: 20}); counts["Er1d"] = C({17: 5, 18: 9})
+    counts["Er2a"] = C({0: 3, 1: 12}); counts["Er2b"] = C({16: 7, 18: 2})
+    counts["Ecf"] = C({1: 4, 16: 6})
+    picks = model.coherent_picks(counts, {"E2": 9})
+    assert picks["E2"] == 9                       # the pin wins over a likelier club
+    assert picks["E3"] == 1 and picks["E1"] == 0  # 1 goes where it is likeliest
+    assert picks["Er1a"] == 0 and picks["Er1b"] == 1
+    assert picks["Er2a"] == 1 and picks["Ecf"] == 16
 
 
-@case("Toronto is pinned to its likeliest seed and appears nowhere else")
+@case("Toronto's road narrows round by round, and the shares make sense")
 def _():
-    best = B["jays_best_seed"]
-    assert B["slots"][best][0]["team"] == JAYS, B["slots"][best][:2]
-    for k, rows in B["slots"].items():
-        if k == best:
-            continue
-        assert all(r["team"] != JAYS for r in rows), (k, rows)
+    r = bk["road"]
+    assert 1 >= r["r1"] >= r["r2"] >= r["cf"] >= r["cup"] >= 0
+    assert abs(sum(bk["seat_dist"].values()) - 1) < 1e-9
+    assert abs(sum(bk["labels"].values()) - 1) < 1e-9
+    assert abs(bk["p_qualify"] - st.focus_in.mean()) < 1e-12
 
 
-@case("the series formats are the ones MLB actually plays")
+@case("the browser draws the bracket by the same rule")
 def _():
-    f = model.FORMATS
-    assert len(f["wc"]) == 3 and all(f["wc"]), "the Wild Card round is all at the higher seed"
-    assert f["alds"] == [True, True, False, False, True], f["alds"]      # 2-2-1
-    assert f["alcs"] == [True, True, False, False, False, True, True], f["alcs"]  # 2-3-2
-    for k, pat in f.items():
-        assert len(pat) % 2 == 1, f"{k} cannot be decided in an even number of games"
-        # the higher seed never has fewer home games than the lower one
-        assert sum(pat) > len(pat) - sum(pat), k
-
-
-@case("playing every game picks the same winner as stopping at the clinch")
-def _():
-    """The shortcut the vectorised series rests on. Whoever gets to the needed wins first
-    necessarily holds the majority of the full set, so there is no need to stop early —
-    and if that were ever wrong, every series on the page would be wrong."""
-    import itertools
-    for g in (3, 5, 7):
-        need = g // 2 + 1
-        for outcome in itertools.product([True, False], repeat=g):
-            first, a, b = None, 0, 0
-            for w in outcome:
-                a, b = a + w, b + (not w)
-                if first is None and (a == need or b == need):
-                    first = a == need
-            assert first == (sum(outcome) > g // 2), (g, outcome)
-
-
-@case("the better club wins a series more often, and home field is worth something")
-def _():
-    rng = np.random.default_rng(4)
-    n = 20_000
-    strong = np.full(n, 0.560)
-    weak = np.full(n, 0.440)
-    even = np.full(n, 0.500)
-    assert model.play_series(rng, strong, weak, model.FORMATS["alcs"]).mean() > 0.62
-    assert model.play_series(rng, weak, strong, model.FORMATS["alcs"]).mean() < 0.38
-    # an even matchup with every game at home has to beat a coin flip
-    home = model.play_series(rng, even, even, model.FORMATS["wc"]).mean()
-    assert 0.52 < home < 0.62, home
-    # and a longer series favours the better club more than a short one does
-    short = model.play_series(rng, strong, weak, model.FORMATS["wc"]).mean()
-    long_ = model.play_series(rng, strong, weak, model.FORMATS["alcs"]).mean()
-    assert long_ > short, (short, long_)
-
-
-@case("every round is won by one of the two clubs actually in it")
-def _():
-    rng = np.random.default_rng(11)
-    ps = model.postseason(ST, SEEDS, rng)
-    cols = np.arange(NS)
-    s1, s2, s3, s4, s5, s6 = (SEEDS[k] for k in range(6))
-    assert ((ps["w36"] == s3) | (ps["w36"] == s6)).all()
-    assert ((ps["w45"] == s4) | (ps["w45"] == s5)).all()
-    assert ((ps["d1"] == s1) | (ps["d1"] == ps["w45"])).all()
-    assert ((ps["d2"] == s2) | (ps["d2"] == ps["w36"])).all()
-    assert ((ps["champ"] == ps["d1"]) | (ps["champ"] == ps["d2"])).all()
-    # and the pennant always goes to a club that was in the field
-    in_field = (SEEDS == ps["champ"]).any(axis=0)
-    assert in_field.all(), "a club won the pennant without making the playoffs"
-
-
-@case("a bye means the 1 and 2 seeds skip the Wild Card round entirely")
-def _():
-    rng = np.random.default_rng(12)
-    ps = model.postseason(ST, SEEDS, rng)
-    for k in ("w36", "w45"):
-        assert not (ps[k] == SEEDS[0]).any(), "the 1 seed played in the Wild Card round"
-        assert not (ps[k] == SEEDS[1]).any(), "the 2 seed played in the Wild Card round"
-
-
-@case("Toronto's road only gets harder, never easier")
-def _():
-    r = B["road"]
-    assert 0 <= r["pennant"] <= r["alcs"] <= r["alds"] <= 1.0, r
-    # reaching the Division Series is at least as likely as the bye alone guarantees
-    assert r["alds"] >= B["p_bye"] - 1e-9, (r["alds"], B["p_bye"])
-
-
-@case("the later rounds are distributions over clubs still alive")
-def _():
-    for k in ("w36", "w45", "d1", "d2", "champ"):
-        rows = B["rounds"][k]
-        assert rows, k
-        assert sum(r["p"] for r in rows) <= 1.0 + 1e-9, k
-        for r in rows:
-            assert r["team"] in model.AL_TEAMS, (k, r)
-
-
-@case("an eliminated club gets no bracket instead of a crash")
-def _():
-    """Every September somebody is out, and that is exactly when the build must keep
-    publishing rather than divide by a field of zero qualifying seasons."""
-    class Dead:
-        jays_in = np.zeros(NS, dtype=bool)
-    assert model.bracket(Dead()) is None
-
-
-def main():
-    fails = []
-    for name, fn in CASES:
-        try:
-            fn()
-            print(f"  OK    {name}")
-        except AssertionError as e:
-            print(f"  FAIL  {name}\n        {e}")
-            fails.append(name)
-    print("\n" + "=" * 58)
-    if fails:
-        print(f"BRACKET TEST FAILED ({len(fails)} of {len(CASES)})")
-        return 1
-    print(f"BRACKET TEST PASSED — all {len(CASES)} cases")
-    return 0
+    src = open("app.js").read()
+    for needle in ("function readBracket", "used[t]", "better(n, pick[FEED",
+                   "pick[PARTNER[best - 1]] = bo"):
+        assert needle in src, needle
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run("BRACKET TEST"))

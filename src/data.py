@@ -5,24 +5,36 @@ _P = os.path.join(os.path.dirname(__file__), "..", "build", "data.json")
 with open(_P) as f:
     _D = json.load(f)
 
-SEASON    = _D["season"]
-AS_OF     = _D["as_of"]
-GENERATED = _D["generated"]
-AL        = {k: tuple(v) for k, v in _D["AL"].items()}
-NL        = {k: tuple(v) for k, v in _D["NL"].items()}
-DIVISIONS = _D["DIVISIONS"]
-GAMES     = [tuple(g) for g in _D["GAMES"]]
-BREF      = _D.get("BREF")
-# first pitch (UTC ISO) and game state for Toronto's remaining games, keyed
-# "date|away|home"; empty when the feed did not supply them
-TIMES     = _D.get("TIMES", {})
-# makeup games added by hand in fetch_data.SYNTHETIC_GAMES; disclosed in the page footnote
-SYNTHETIC = [tuple(g) for g in _D.get("SYNTHETIC", [])]
-# games dropped by hand (IGNORE_GAMES) or auto-detected as already played
-REMOVED = [tuple(g) for g in _D.get("REMOVED", [])]
+SEASON       = _D["season"]
+SEASON_GAMES = _D["season_games"]
+FOCUS        = _D["focus"]
+TRACKER_ID   = _D.get("tracker_id", f"nhl-{FOCUS}-{SEASON}")
+PRESEASON    = _D.get("preseason", False)
+AS_OF        = _D["as_of"]
+GENERATED    = _D["generated"]
+# abbrev -> {name, city, conf, div, w, l, otl, gf, ga, rw}
+TEAMS        = _D["TEAMS"]
+# abbrev -> last season's final {w, l, otl, gf, ga, gp}; may be missing for a new club
+PRIOR        = _D.get("PRIOR", {})
+# measured from last season: share of games past regulation, and home win rate
+LEAGUE       = _D.get("LEAGUE", {"p_ot": 0.248, "home_win": 0.522})
+DIVISIONS    = _D["DIVISIONS"]
+CONFERENCES  = _D["CONFERENCES"]
+GAMES        = [tuple(g) for g in _D["GAMES"]]
+# first puck drop (UTC ISO) and game state for the focus club's remaining games
+TIMES        = _D.get("TIMES", {})
+# the focus club's completed games, oldest first; drives the momentum rating
+RECENT       = _D.get("RECENT", [])
 # encoded readings carried forward from the published page; see history.py
-HISTORY = _D.get("HISTORY", "")
-# the Blue Jays' last completed games, oldest first; drives the momentum rating
-RECENT = _D.get("RECENT", [])
-INJURIES = _D.get("INJURIES", [])
-FINGERPRINT = _D.get("fingerprint", "")
+HISTORY      = _D.get("HISTORY", "")
+FINGERPRINT  = _D.get("fingerprint", "")
+
+
+def points(t):
+    r = TEAMS[t]
+    return 2 * r["w"] + r["otl"]
+
+
+def played(t):
+    r = TEAMS[t]
+    return r["w"] + r["l"] + r["otl"]

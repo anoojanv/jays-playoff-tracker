@@ -34,7 +34,7 @@ def verify(path):
     if ext:
         problems.append(f"external references present: {ext[:5]}")
     low = html.lower()
-    for needle in ("winslider", "play it out", "__sim__", "liveodds", "data-preset"):
+    for needle in ("ptsslider", "play it out", "__sim__", "liveodds", "data-preset", "data-node"):
         if needle not in low:
             problems.append(f"missing expected content: {needle!r}")
     if "localStorage" in html:
@@ -44,6 +44,10 @@ def verify(path):
     fp = re.search(r'<meta name="data-fingerprint" content="([^"]*)"', html)
     if not fp or not fp.group(1).strip():
         problems.append("data fingerprint is missing or empty")
+    # the trend chart only reads history published under the same tracker id, so a
+    # missing one would quietly start the chart over on every build
+    if not re.search(r'<meta name="tracker-id" content="[^"]+"', html):
+        problems.append("tracker id is missing")
     if problems:
         sys.exit("FAILED verification:\n  - " + "\n  - ".join(problems))
     print(f"  verified: {len(html)/1024:.0f} KB, self-contained, interactive markup present")
@@ -66,11 +70,10 @@ def main():
     print("\n=== share card " + "=" * 50)
     subprocess.run([sys.executable, "og_image.py", os.path.join(PUBLIC, "og.png")], cwd=HERE)
 
-    d = json.load(open(os.path.join(ROOT, "build", "data.json")))
     r = json.load(open(os.path.join(HERE, "results.json")))
-    j = d["AL"]["Blue Jays"]
-    print(f"\nBlue Jays {j[0]}-{j[1]} through {d['as_of']} · "
-          f"playoff odds {r['odds']['playoff']*100:.1f}%")
+    rec = r["record"]
+    print(f"\n{r['focus_name']} {rec['w']}-{rec['l']}-{rec['otl']} ({rec['pts']} pts) "
+          f"through {r['as_of']} · playoff odds {r['odds']['playoff']*100:.1f}%")
     print(f"wrote {dst}")
 
 
