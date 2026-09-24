@@ -2,15 +2,15 @@ name: Tracker build & deploy
 
 on:
   schedule:
-    # Poll every 30 minutes from 4pm to 2am Eastern — the window in which games actually
-    # finish, from afternoon starts through West Coast nights that end around 1am. Times
-    # are UTC and the season runs on EDT (UTC-4), so 4pm–2am ET is 20:00–06:00 UTC and
-    # wraps midnight. Offset to :07/:37 on purpose: GitHub's scheduler is busiest on the
-    # hour and delays runs that pile up there.
+    # Poll every 30 minutes from 4pm to 2am Eastern: weekend matinees end around 4pm,
+    # West Coast nights around 1am. Times are UTC, and the season straddles the clock
+    # change — EDT (UTC-4) in October, EST (UTC-5) from November — so the window is
+    # 20:00–06:59 UTC, wide enough for both, and wraps midnight. Offset to :07/:37 on
+    # purpose: GitHub's scheduler is busiest on the hour and delays runs that pile up there.
     - cron: "7,37 20-23 * * *"
-    - cron: "7,37 0-5 * * *"
-    # One guaranteed full rebuild a day at 3:13am Eastern (07:13 UTC), which runs whether
-    # or not anything changed, so the Baseball-Reference comparison stays fresh.
+    - cron: "7,37 0-6 * * *"
+    # One guaranteed full rebuild a day at 07:13 UTC (2–3am Eastern), whether or not
+    # anything changed, so the next-game strip and the calendar roll forward on off days.
     - cron: "13 7 * * *"
   push:
     branches: [main]          # so the very first push proves the setup end to end
@@ -38,8 +38,8 @@ permissions:
   contents: read              # the job never writes to the repo
 
 env:
-  SEASON: "2026"
-  SEASON_END: "2026-10-04"
+  TEAM: "TOR"
+  SEASON: "20262027"
 
 jobs:
   build-and-deploy:
@@ -140,7 +140,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "### Blue Jays tracker"
+            echo "### Maple Leafs tracker"
             echo ""
             if [ "${{ steps.check.outputs.changed }}" != "true" ]; then
               echo "- No games have finished since the last publish — skipped the build."

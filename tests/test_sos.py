@@ -1,127 +1,54 @@
 """
-Strength of schedule.
-
-The number is what a league-average club would win against a team's remaining
-opponents. Two properties make it worth showing, and neither is visible in the output:
-
-  * it is independent of the club's own quality, so two teams can be compared directly
-  * it uses the same matchup maths the simulation uses, so it describes the odds rather
-    than telling a different story from them
+Strength of schedule: what an average club would win against each team's remaining
+opponents, home and road included. Descriptive only — the simulation already prices
+every game — so these cases pin down what the number means.
 
 Run:  python tests/test_sos.py
 """
-import os, shutil, sys
+import sys
+from _harness import case, run, load
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
-SRC = os.path.join(ROOT, "src")
-
-_build = os.path.join(ROOT, "build")
-_data = os.path.join(_build, "data.json")
-if not os.path.exists(_data):
-    os.makedirs(_build, exist_ok=True)
-    shutil.copyfile(os.path.join(HERE, "fixture_data.json"), _data)
-
-sys.path.insert(0, SRC)
-os.chdir(SRC)
-
-import model  # noqa: E402
-
-JAYS = model.JAYS
-CASES = []
+model = load()
 
 
-def case(name):
-    def deco(fn):
-        CASES.append((name, fn))
-        return fn
-    return deco
-
-
-@case("every AL club gets a value, and they are plausible win rates")
+@case("every club with games left gets a rate strictly between 0 and 1")
 def _():
     sos = model.strength_of_schedule()
-    assert set(sos) == set(model.AL_TEAMS), sorted(sos)
-    for t, v in sos.items():
-        assert 0.30 < v < 0.70, (t, v)
+    for t in model.TEAMS:
+        assert sos[t] is not None and 0 < sos[t] < 1, (t, sos[t])
 
 
-@case("a club's own quality does not move its own number")
+@case("a league of identical clubs gives everyone the same schedule, bar home ice")
 def _():
-    # The point of holding talent at .500 is that a club's rating cannot flatter itself.
-    before = model.strength_of_schedule()
-    original = model.talent[JAYS]
-    try:
-        model.talent[JAYS] = 0.900          # make Toronto enormously good
-        after = model.strength_of_schedule()
-    finally:
-        model.talent[JAYS] = original
-    assert abs(after[JAYS] - before[JAYS]) < 1e-12, (before[JAYS], after[JAYS])
+    flat = {t: 0.5 for t in model.TEAMS}
+    sos = model.strength_of_schedule(flat)
+    home = {t: 0 for t in model.TEAMS}
+    for _, a, h in model.games:
+        home[h] += 1
+    for t in model.TEAMS:
+        expected = (home[t] * model.matchup(0.5, 0.5, True)
+                    + (model.rem[t] - home[t]) * model.matchup(0.5, 0.5, False)) / model.rem[t]
+        assert abs(sos[t] - expected) < 1e-12, t
 
 
-@case("but it does move the number for everyone who has to play them")
+@case("making Toronto's opponents better makes Toronto's schedule harder")
 def _():
-    before = model.strength_of_schedule()
-    opponents = {a if h == JAYS else h
-                 for _, a, h in model.games if JAYS in (a, h)} & set(model.AL_TEAMS)
-    assert opponents, "fixture should have AL clubs facing Toronto"
-    original = model.talent[JAYS]
-    try:
-        model.talent[JAYS] = 0.900
-        after = model.strength_of_schedule()
-    finally:
-        model.talent[JAYS] = original
-    for t in opponents:
-        assert after[t] < before[t], f"{t} should face a harder road, {before[t]} -> {after[t]}"
+    opps = {a if h == "TOR" else h for _, a, h in model.games if "TOR" in (a, h)}
+    tal = dict(model.talent)
+    before = model.strength_of_schedule(tal)["TOR"]
+    for t in opps:
+        tal[t] = min(0.95, tal[t] + 0.05)
+    after = model.strength_of_schedule(tal)["TOR"]
+    assert after < before, (before, after)
 
 
-@case("a tougher opponent lowers the expected win rate")
+@case("a club's own strength does not enter its own schedule")
 def _():
-    strong = model.matchup(model.NEUTRAL, 0.600, True)
-    weak = model.matchup(model.NEUTRAL, 0.400, True)
-    assert strong < weak, (strong, weak)
-
-
-@case("home field is worth something, and the same game is not scored twice")
-def _():
-    home = model.matchup(model.NEUTRAL, 0.500, True)
-    away = model.matchup(model.NEUTRAL, 0.500, False)
-    assert home > 0.5 > away, (home, away)
-    assert abs((home + away) - 1.0) < 1e-9, "even-talent home and road must be complements"
-
-
-@case("it agrees with the probabilities actually simulated")
-def _():
-    # p_home drives the Monte Carlo; SOS must be built from the same function, or the
-    # column would quietly describe a different model from the one producing the odds.
-    for i, (_, a, h) in enumerate(model.games[:40]):
-        assert abs(model.matchup(model.talent[h], model.talent[a], True)
-                   - model.p_home[i]) < 1e-12, (i, a, h)
-
-
-@case("the hardest and easiest schedules are meaningfully apart")
-def _():
-    sos = model.strength_of_schedule()
-    spread = max(sos.values()) - min(sos.values())
-    assert spread > 0.005, f"spread of {spread:.4f} is too small to be worth showing"
-
-
-def main():
-    fails = []
-    for name, fn in CASES:
-        try:
-            fn()
-            print(f"  OK    {name}")
-        except AssertionError as e:
-            print(f"  FAIL  {name}\n        {e}")
-            fails.append(name)
-    print("\n" + "=" * 58)
-    if fails:
-        print(f"SOS TEST FAILED ({len(fails)} of {len(CASES)})")
-        return 1
-    print(f"SOS TEST PASSED — all {len(CASES)} cases")
-    return 0
+    tal = dict(model.talent)
+    before = model.strength_of_schedule(tal)["TOR"]
+    tal["TOR"] = 0.9
+    assert abs(model.strength_of_schedule(tal)["TOR"] - before) < 1e-12
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run("SOS TEST"))

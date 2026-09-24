@@ -1,7 +1,7 @@
 """
 Cheap change detector — decides whether a full rebuild is worth running.
 
-Fetches the two standings endpoints (about a second), fingerprints every club's record,
+Fetches the league standings (about a second), fingerprints every club's record,
 and compares that to the fingerprint embedded in the page that is currently published.
 The deployed site is therefore its own state file: nothing to persist between runs, and
 if a deploy is ever rolled back the next poll notices and rebuilds.
@@ -9,7 +9,7 @@ if a deploy is ever rolled back the next poll notices and rebuilds.
 Uses the standard library only — no numpy, no pip install — so a poll that finds nothing
 new costs a few seconds of runner time.
 
-Writes `changed=true|false` to $GITHUB_OUTPUT. Fails loudly if MLB is unreachable;
+Writes `changed=true|false` to $GITHUB_OUTPUT. Fails loudly if the NHL API is unreachable;
 defaults to rebuilding if the live page can't be read, since publishing is the safe error.
 """
 import os, re, sys, importlib.util, urllib.request
@@ -27,7 +27,7 @@ def live_fingerprint():
     try:
         req = urllib.request.Request(
             SITE + "/?cachebust=" + os.environ.get("GITHUB_RUN_ID", "0"),
-            headers={"User-Agent": "jays-tracker-check/1.0", "Cache-Control": "no-cache"})
+            headers={"User-Agent": "leafs-tracker-check/1.0", "Cache-Control": "no-cache"})
         with urllib.request.urlopen(req, timeout=30) as r:
             html = r.read().decode("utf-8", "ignore")
     except Exception as e:
@@ -45,11 +45,9 @@ def main():
         print("FORCE_BUILD set — rebuilding regardless")
         return emit(True)
 
-    al = fd.standings(103)
-    nl = fd.standings(104)
-    current = fd.fingerprint(al, nl)
-    j = al["Blue Jays"]
-    print(f"  MLB now: Blue Jays {j['w']}-{j['l']}  ·  fingerprint {current}")
+    _, rows = fd.standings_now()
+    current = fd.fingerprint(rows)
+    print(f"  NHL now: {len(rows)} clubs  ·  fingerprint {current}")
 
     live = live_fingerprint()
     if live is not None:

@@ -1,14 +1,15 @@
-/* Blue Jays playoff tracker — in-browser Monte Carlo.
-   Same model as the Python build: log5 matchup probability + home-field advantage,
-   full AL field, 3 division winners + 3 wild cards, random tiebreak.
-   Locking a series forces those game results (for BOTH clubs) and re-simulates the rest,
-   so a scenario's odds are exact rather than read off a baseline curve.
+/* Maple Leafs playoff tracker — in-browser Monte Carlo.
+   Same model as the Python build: log5 matchup plus home ice, a separate draw for whether
+   a game goes past regulation (which decides the loser point), points then regulation
+   wins then a coin, three per division plus two wild cards per conference.
 
-   Three controls drive the SAME scenario, and stay in sync:
-     - the hero slider sets a rest-of-season win total, distributed across the series
-     - the road-map buttons set an individual series, which moves the slider to match
-     - the scoreboard hot/cold toggles bias a rival's remaining games
-   The whole scenario round-trips through the URL hash, so it can be shared. */
+   It re-simulates the focus conference only. Nothing on the page can move a game between
+   two clubs of the other conference, so those are left out and a re-run stays fast; the
+   other conference's champion, needed for the Final, is sampled from the Python run.
+
+   Two controls drive one scenario: the slider fixes Toronto's rest-of-season points, and
+   the scoreboard hot/cold toggles bias a rival's remaining games. Both round-trip
+   through the URL hash, so a scenario can be shared. */
 
 /* Manual refresh. The page is static, so "refresh" means asking GitHub Actions to run
    the pipeline now: POST /api/refresh (a Netlify function holding the token — see
@@ -102,7 +103,7 @@
       var b = r.body || {};
       if (r.status === 202) {
         busy(true);
-        say("Checking MLB for new results…", "");
+        say("Checking the NHL for new results…", "");
         watch(b.after_id || 0, Date.now());
       } else if (r.status === 200 && b.state === "running") {
         busy(true);
@@ -155,73 +156,34 @@
   var D = window.__SIM__;
   if (!D) return;
 
-  var NT = D.teams.length, NG = D.gH.length, J = D.jaysIdx, NS = D.series.length;
+  var NT = D.teams.length, NG = D.gH.length, J = D.focusIdx, NF = D.nFocusGames;
   var gH = D.gH, gA = D.gA, gP = D.gP, gJ = D.gJ;
-  var NSIM_FULL = 14000, NSIM_DRAG = 4000;    // fewer sims while a drag is in flight
-  var TOTAL_GAMES = 0;
-  for (var q = 0; q < NS; q++) TOTAL_GAMES += D.series[q].n;
+  var NSIM_FULL = 5000, NSIM_DRAG = 1200;          // fewer seasons while a drag is live
+  var P_OT = D.pOt, HFA = D.hfa, TAL = D.talent, SER = D.series;
+  var CONF = D.confIdx, DIVS = D.divs, DIVN = D.divNames, P = D.confPrefix;
+  var inConf = new Uint8Array(NT);
+  for (var ci = 0; ci < CONF.length; ci++) inConf[CONF[ci]] = 1;
+  var GL = NF, TOTAL_PTS = 2 * NF;
 
   // scratch buffers reused across every simulation
-  var wins = new Int32Array(NT), score = new Float64Array(NT), isDW = new Uint8Array(NT);
-  /* Seeding scratch. MLB's format: the three division winners take seeds 1-3 by record,
-     the three wild cards 4-6 — a 100-win wild card still seeds behind an 85-win division
-     winner. Seeds 1 and 2 sit out the Wild Card round; 3 hosts 6 and 4 hosts 5. */
-  var seat = new Int32Array(6), dwList = new Int32Array(3);
-  var seedCt = new Float64Array(7), oppCt = new Float64Array(NT + 1);
-  var slotCt = new Float64Array(6 * NT);
-  var WC_OPP_ROW = [-1, -1, 5, 4, 3, 2];       // seed index -> opponent's seed index
+  var pts = new Int32Array(NT), rw = new Int32Array(NT), score = new Float64Array(NT);
+  var divRank = new Int8Array(NT), wcRank = new Int8Array(NT), teamIn = new Float64Array(NT);
+  var focusRes = new Int8Array(NF);                 // 2 win, 1 overtime loss, 0 reg. loss
+  var order = [];
 
-  /* October itself. Same log5-plus-home-edge matchup the schedule is simulated with, so a
-     Division Series is priced the way a game in August is. Home-field patterns as MLB
-     plays them: the Wild Card round entirely at the higher seed, then 2-2-1 and 2-3-2. */
-  var TAL = D.talent, HFA = D.hfa;
-  var FMT = D.formats || { wc: [1, 1, 1], alds: [1, 1, 0, 0, 1],
-                           alcs: [1, 1, 0, 0, 0, 1, 1] };
-  var ROUND_KEYS = ["w36", "w45", "d1", "d2", "champ"];
-  var roundCt = new Float64Array(ROUND_KEYS.length * NT);
-  var roadCt = new Float64Array(3);            // reached the ALDS, the ALCS, the pennant
-
-  function pGame(ta, tb, aHome) {
-    var p = (ta - ta * tb) / (ta + tb - 2 * ta * tb), o;
-    if (aHome) { o = p / (1 - p) * HFA; return o / (1 + o); }
-    o = (1 - p) / p * HFA;
-    return 1 / (1 + o);
-  }
-
-  /* Playing every game rather than stopping at the clinch gives the identical winner —
-     whoever gets there first holds the majority of G — and keeps the loop branchless. */
-  function playSeries(a, b, pattern, rand) {
-    var w = 0;
-    for (var i = 0; i < pattern.length; i++) {
-      if (rand() < pGame(TAL[a], TAL[b], !!pattern[i])) w++;
-    }
-    return w > (pattern.length >> 1);
-  }
-  var teamIn = new Float64Array(NT), locked = new Int8Array(D.nJaysGames);
-  var pick = new Int8Array(8);
-
-  /* Rival hot/cold: a per-team shift in logit space, applied to every remaining game
-     that team plays. The magnitude is calibrated so the forced finish lands near the
-     25th/75th-percentile win totals the dependency bars describe, not some arbitrary
-     collapse: over G games the quartile sits ~0.674·√G/2 wins from the mean, and a
-     logit shift of s moves a near-coin-flip game by ~s/4, so s = 1.348/√G moves the
-     mean by exactly that. The shifted probabilities are rebuilt once per recompute,
-     not once per game per season, so 14,000 seasons stay as fast as before. */
-  var rivalMode = new Int8Array(NT);            // -1 cold, 0 model, +1 hot
-  var teamG = new Int32Array(NT);               // remaining games per team
-  for (var _g = 0; _g < NG; _g++) {
-    if (gH[_g] >= 0) teamG[gH[_g]]++;
-    if (gA[_g] >= 0) teamG[gA[_g]]++;
-  }
+  /* Rival hot/cold: a shift in logit space on every game that club plays, sized so the
+     forced finish lands near the 25th/75th-percentile points the bars describe: over G
+     games the quartile sits ~0.674·√G/2 wins from the mean, and a logit shift of s moves a
+     near-even game by ~s/4, so s = 1.348/√G moves the mean by that much. */
+  var rivalMode = new Int8Array(NT);
+  var teamG = new Int32Array(NT);
+  for (var g0 = 0; g0 < NG; g0++) { teamG[gH[g0]]++; teamG[gA[g0]]++; }
   function biasFor(t) { return 1.348 / Math.sqrt(Math.max(4, teamG[t])); }
-
   var gPeff = Float64Array.from(gP);
-
   function rebuildEff() {
     for (var g = 0; g < NG; g++) {
       var p = gP[g];
-      var sh = (gH[g] >= 0 ? rivalMode[gH[g]] * biasFor(gH[g]) : 0)
-             - (gA[g] >= 0 ? rivalMode[gA[g]] * biasFor(gA[g]) : 0);
+      var sh = rivalMode[gH[g]] * biasFor(gH[g]) - rivalMode[gA[g]] * biasFor(gA[g]);
       if (sh) {
         p = Math.min(0.999, Math.max(0.001, p));
         p = 1 / (1 + Math.exp(-(Math.log(p / (1 - p)) + sh)));
@@ -229,7 +191,6 @@
       gPeff[g] = p;
     }
   }
-
   function anyBias() {
     for (var t = 0; t < NT; t++) if (rivalMode[t]) return true;
     return false;
@@ -244,212 +205,227 @@
     };
   }
 
-  function simulate(scen, nsim, seed) {
-    var rand = mulberry32(seed >>> 0);
-    var lockedSeries = [], s, i, g, t;
-    for (s = 0; s < NS; s++) if (scen[s] !== null) lockedSeries.push(s);
+  /* The playoffs. Every round best of seven, 2-2-1-1-1, home ice to the better regular
+     season. Playing all seven rather than stopping at four gives the identical winner —
+     whoever gets there first holds the majority — and keeps the loop branchless. */
+  function pGame(ta, tb, aHome) {
+    var p = (ta - ta * tb) / (ta + tb - 2 * ta * tb), o;
+    if (aHome) { o = p / (1 - p) * HFA; return o / (1 + o); }
+    o = (1 - p) / p * HFA;
+    return 1 / (1 + o);
+  }
+  function series(a, b, sa, sb, rand) {
+    var hi = sa >= sb ? a : b, lo = sa >= sb ? b : a, w = 0;
+    for (var i = 0; i < SER.length; i++) if (rand() < pGame(TAL[hi], TAL[lo], !!SER[i])) w++;
+    return w > (SER.length >> 1) ? hi : lo;
+  }
+  // the other conference's champion, sampled from the Python run (nothing on this page
+  // can change a game between two clubs of the other conference)
+  var OC = D.otherChamps || [], ocTot = 0;
+  for (var oi = 0; oi < OC.length; oi++) ocTot += OC[oi].p;
+  function otherChamp(rand) {
+    var u = rand() * ocTot;
+    for (var i = 0; i < OC.length; i++) { u -= OC[i].p; if (u <= 0) return OC[i]; }
+    return OC[OC.length - 1];
+  }
 
-    var inCount = 0, jaysWinSum = 0, cutSum = 0;
+  var NODES = [P + "1", P + "2", P + "3", P + "4", P + "5", P + "6", P + "7", P + "8",
+               P + "r1a", P + "r1b", P + "r1c", P + "r1d", P + "r2a", P + "r2b",
+               P + "cf", "cup"];
+  var NN = NODES.length;
+  var nodeCt = new Float64Array(NN * NT), roadCt = new Float64Array(4);
+  var seatCt = new Float64Array(9), seatOpp = new Float64Array(9 * NT);
+  var seatHost = new Float64Array(9), seat = new Int32Array(8);
+  var PARTNER = [1, 0, 3, 2, 5, 4, 7, 6];
+
+  function rankConference(rand) {
+    var t, d, k;
+    for (t = 0; t < CONF.length; t++) {
+      var c = CONF[t];
+      score[c] = pts[c] + rw[c] * 1e-3 + rand() * 1e-5;
+      divRank[c] = 0; wcRank[c] = 0;
+    }
+    for (d = 0; d < DIVS.length; d++) {
+      order = DIVS[d].slice();
+      order.sort(function (x, y) { return score[y] - score[x]; });
+      for (k = 0; k < order.length; k++) divRank[order[k]] = k + 1;
+    }
+    order = [];
+    for (t = 0; t < CONF.length; t++) if (divRank[CONF[t]] > 3) order.push(CONF[t]);
+    order.sort(function (x, y) { return score[y] - score[x]; });
+    if (order.length > 0) wcRank[order[0]] = 1;
+    if (order.length > 1) wcRank[order[1]] = 2;
+  }
+
+  function divSeat(d, rank) {
+    for (var i = 0; i < DIVS[d].length; i++) if (divRank[DIVS[d][i]] === rank) return DIVS[d][i];
+    return -1;
+  }
+
+  function simulate(target, nsim, seed) {
+    var rand = mulberry32(seed >>> 0);
+    var inCount = 0, ptsSum = 0, cutSum = 0, t, g, i, k;
     for (t = 0; t < NT; t++) teamIn[t] = 0;
-    seedCt.fill(0); oppCt.fill(0); slotCt.fill(0);
-    roundCt.fill(0); roadCt.fill(0);
+    nodeCt.fill(0); roadCt.fill(0); seatCt.fill(0); seatOpp.fill(0); seatHost.fill(0);
+    var w = target === null ? 0 : target >> 1, o = target === null ? 0 : target & 1;
 
     for (var it = 0; it < nsim; it++) {
-      for (i = 0; i < locked.length; i++) locked[i] = -1;
-      for (var li = 0; li < lockedSeries.length; li++) {
-        var ser = D.series[lockedSeries[li]], k = scen[lockedSeries[li]], n = ser.n;
-        for (i = 0; i < n; i++) pick[i] = i < k ? 1 : 0;
-        for (i = n - 1; i > 0; i--) {           // Fisher-Yates: which games are won
-          var j = (rand() * (i + 1)) | 0, tmp = pick[i]; pick[i] = pick[j]; pick[j] = tmp;
+      // the slider fixes Toronto's points; which games they come from is spread at random
+      if (target !== null) {
+        for (i = 0; i < NF; i++) focusRes[i] = i < w ? 2 : (i < w + o ? 1 : 0);
+        for (i = NF - 1; i > 0; i--) {
+          var j = (rand() * (i + 1)) | 0, tmp = focusRes[i];
+          focusRes[i] = focusRes[j]; focusRes[j] = tmp;
         }
-        for (i = 0; i < n; i++) locked[ser.slots[i]] = pick[i];
       }
-
-      for (t = 0; t < NT; t++) wins[t] = D.baseW[t];
+      for (t = 0; t < CONF.length; t++) { pts[CONF[t]] = D.basePts[CONF[t]]; rw[CONF[t]] = D.baseRw[CONF[t]]; }
 
       for (g = 0; g < NG; g++) {
-        var h = gH[g], a = gA[g], slot = gJ[g], homeWin;
-        if (slot >= 0 && locked[slot] >= 0) {
-          var jaysWon = locked[slot] === 1;
-          homeWin = (h === J) ? jaysWon : !jaysWon;
+        var h = gH[g], a = gA[g], s = gJ[g], hw, ot;
+        if (s >= 0 && target !== null) {
+          var fw = focusRes[s] === 2;
+          hw = (h === J) ? fw : !fw;
+          ot = focusRes[s] === 1 ? true : (fw ? rand() < P_OT : false);
         } else {
-          homeWin = rand() < gPeff[g];
+          hw = rand() < gPeff[g];
+          ot = rand() < P_OT;
         }
-        if (homeWin) { if (h >= 0) wins[h]++; } else { if (a >= 0) wins[a]++; }
+        if (hw) {
+          if (inConf[h]) { pts[h] += 2; if (!ot) rw[h]++; }
+          if (ot && inConf[a]) pts[a] += 1;
+        } else {
+          if (inConf[a]) { pts[a] += 2; if (!ot) rw[a]++; }
+          if (ot && inConf[h]) pts[h] += 1;
+        }
       }
 
-      for (t = 0; t < NT; t++) { score[t] = wins[t] + rand() * 0.5; isDW[t] = 0; }
-      for (var d = 0; d < D.divs.length; d++) {
-        var dv = D.divs[d], best = dv[0];
-        for (i = 1; i < dv.length; i++) if (score[dv[i]] > score[best]) best = dv[i];
-        isDW[best] = 1;
+      rankConference(rand);
+      for (t = 0; t < CONF.length; t++) {
+        var c = CONF[t];
+        if (divRank[c] <= 3 || wcRank[c] > 0) teamIn[c]++;
+        if (wcRank[c] === 2) cutSum += pts[c];
       }
-      var w1 = -1, w2 = -1, w3 = -1;
-      for (t = 0; t < NT; t++) {
-        if (isDW[t]) continue;
-        if (w1 < 0 || score[t] > score[w1]) { w3 = w2; w2 = w1; w1 = t; }
-        else if (w2 < 0 || score[t] > score[w2]) { w3 = w2; w2 = t; }
-        else if (w3 < 0 || score[t] > score[w3]) { w3 = t; }
-      }
-      for (t = 0; t < NT; t++) if (isDW[t] || t === w1 || t === w2 || t === w3) teamIn[t]++;
-      if (w3 >= 0) cutSum += wins[w3];
-      var jaysIn = isDW[J] || J === w1 || J === w2 || J === w3;
-      if (jaysIn) inCount++;
-      jaysWinSum += wins[J];
+      ptsSum += pts[J];
+      if (!(divRank[J] <= 3 || wcRank[J] > 0)) continue;
+      inCount++;
 
-      /* Seed the field, but only when Toronto is in it — the bracket is conditional on
-         qualifying and there is nothing to show in the seasons where they miss. */
-      if (jaysIn) {
-        var nd = 0;
-        for (t = 0; t < NT && nd < 3; t++) if (isDW[t]) dwList[nd++] = t;
-        // three elements: an insertion sort by score, descending
-        for (i = 1; i < 3; i++) {
-          var key = dwList[i], jj = i - 1;
-          while (jj >= 0 && score[dwList[jj]] < score[key]) { dwList[jj + 1] = dwList[jj]; jj--; }
-          dwList[jj + 1] = key;
-        }
-        seat[0] = dwList[0]; seat[1] = dwList[1]; seat[2] = dwList[2];
-        seat[3] = w1; seat[4] = w2; seat[5] = w3;     // already ordered by score
-        var js = 0;
-        for (i = 0; i < 6; i++) {
-          slotCt[i * NT + seat[i]]++;
-          if (seat[i] === J) js = i;
-        }
-        seedCt[js + 1]++;
-        var orow = WC_OPP_ROW[js];
-        oppCt[orow < 0 ? NT : seat[orow]]++;          // index NT means a bye
-
-        // play October out
-        var w36 = playSeries(seat[2], seat[5], FMT.wc, rand) ? seat[2] : seat[5];
-        var w45 = playSeries(seat[3], seat[4], FMT.wc, rand) ? seat[3] : seat[4];
-        var d1 = playSeries(seat[0], w45, FMT.alds, rand) ? seat[0] : w45;
-        var d2 = playSeries(seat[1], w36, FMT.alds, rand) ? seat[1] : w36;
-        var ch = playSeries(d1, d2, FMT.alcs, rand) ? d1 : d2;
-        roundCt[0 * NT + w36]++; roundCt[1 * NT + w45]++;
-        roundCt[2 * NT + d1]++;  roundCt[3 * NT + d2]++;
-        roundCt[4 * NT + ch]++;
-        if (js <= 1 || w36 === J || w45 === J) roadCt[0]++;
-        if (d1 === J || d2 === J) roadCt[1]++;
-        if (ch === J) roadCt[2]++;
+      // seat the conference: the better division winner draws the second wild card
+      var w1 = divSeat(0, 1), w2 = divSeat(1, 1), wc1 = -1, wc2 = -1;
+      for (t = 0; t < CONF.length; t++) {
+        if (wcRank[CONF[t]] === 1) wc1 = CONF[t];
+        if (wcRank[CONF[t]] === 2) wc2 = CONF[t];
       }
+      var top1 = score[w1] > score[w2];
+      seat[0] = w1; seat[1] = top1 ? wc2 : wc1; seat[2] = divSeat(0, 2); seat[3] = divSeat(0, 3);
+      seat[4] = w2; seat[5] = top1 ? wc1 : wc2; seat[6] = divSeat(1, 2); seat[7] = divSeat(1, 3);
+      var js = 0;
+      for (k = 0; k < 8; k++) { nodeCt[k * NT + seat[k]]++; if (seat[k] === J) js = k; }
+      seatCt[js + 1]++;
+      var opp = seat[PARTNER[js]];
+      seatOpp[(js + 1) * NT + opp]++;
+      if (score[J] > score[opp]) seatHost[js + 1]++;
+
+      var r1 = [series(seat[0], seat[1], score[seat[0]], score[seat[1]], rand),
+                series(seat[2], seat[3], score[seat[2]], score[seat[3]], rand),
+                series(seat[4], seat[5], score[seat[4]], score[seat[5]], rand),
+                series(seat[6], seat[7], score[seat[6]], score[seat[7]], rand)];
+      for (k = 0; k < 4; k++) nodeCt[(8 + k) * NT + r1[k]]++;
+      var r2a = series(r1[0], r1[1], score[r1[0]], score[r1[1]], rand);
+      var r2b = series(r1[2], r1[3], score[r1[2]], score[r1[3]], rand);
+      nodeCt[12 * NT + r2a]++; nodeCt[13 * NT + r2b]++;
+      var cf = series(r2a, r2b, score[r2a], score[r2b], rand);
+      nodeCt[14 * NT + cf]++;
+      var cup = cf;
+      if (OC.length) {
+        var oc = otherChamp(rand);
+        cup = series(cf, oc.t, score[cf], oc.pts, rand);
+      }
+      nodeCt[15 * NT + cup]++;
+      if (r1[0] === J || r1[1] === J || r1[2] === J || r1[3] === J) roadCt[0]++;
+      if (r2a === J || r2b === J) roadCt[1]++;
+      if (cf === J) roadCt[2]++;
+      if (cup === J) roadCt[3]++;
     }
 
     var odds = new Float64Array(NT);
     for (t = 0; t < NT; t++) odds[t] = teamIn[t] / nsim;
-    return { odds: inCount / nsim, teamOdds: odds, meanWins: jaysWinSum / nsim,
+    return { odds: inCount / nsim, teamOdds: odds, meanPts: ptsSum / nsim,
              cut: cutSum / nsim, nsim: nsim,
              bracket: inCount ? readBracket(inCount) : null };
   }
 
-  /* Turn the seeding tallies into the shape the bracket renders from. Everything is a
-     share of the seasons Toronto QUALIFIED in, not of all seasons. */
+  /* Tallies into the shape the bracket renders from, as shares of the seasons Toronto
+     QUALIFIED in. One club per slot so the bracket reads as one picture — the same rule
+     as model.coherent_picks: Toronto pinned to its likeliest seat and its likeliest
+     opponent from there across from it, the other seats filled greedily with each club
+     used once, then every later slot taking whichever of its two feeders wins it more. */
+  var FEED = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9], [10, 11], [12, 13]];   // nodes 8..14
   function readBracket(nIn) {
-    var k, t, best = 1;
-    var seed = new Array(7).fill(0);
-    for (k = 1; k <= 6; k++) {
-      seed[k] = seedCt[k] / nIn;
-      if (seedCt[k] > seedCt[best]) best = k;
-    }
-    var opp = [], oi;
-    for (oi = 0; oi <= NT; oi++) {
-      if (oppCt[oi]) opp.push({ team: oi === NT ? null : oi, p: oppCt[oi] / nIn });
-    }
-    opp.sort(function (a, b) { return b.p - a.p; });
+    var k, t, n, best = 1;
+    for (k = 1; k <= 8; k++) if (seatCt[k] > seatCt[best]) best = k;
+    var bo = -1, bc = 0;
+    for (t = 0; t < NT; t++) if (seatOpp[best * NT + t] > bc) { bc = seatOpp[best * NT + t]; bo = t; }
 
-    // Toronto is pinned to its likeliest seed; every other slot shows the likeliest club
-    // that is NOT Toronto, so the six slots read as one coherent bracket.
-    var slots = {};
-    for (k = 1; k <= 6; k++) {
+    var pick = new Int32Array(NN).fill(-1), used = {};
+    pick[best - 1] = J; used[J] = 1;
+    if (bo >= 0) { pick[PARTNER[best - 1]] = bo; used[bo] = 1; }
+    var cand = [];
+    for (n = 0; n < 8; n++) {
+      if (pick[n] >= 0) continue;
+      for (t = 0; t < NT; t++) if (nodeCt[n * NT + t]) cand.push([nodeCt[n * NT + t], n, t]);
+    }
+    cand.sort(function (x, y) { return y[0] - x[0] || x[1] - y[1] || x[2] - y[2]; });
+    for (k = 0; k < cand.length; k++) {
+      n = cand[k][1]; t = cand[k][2];
+      if (pick[n] < 0 && !used[t]) { pick[n] = t; used[t] = 1; }
+    }
+    function better(node, a, b) {
+      if (a < 0) return b;
+      if (b < 0) return a;
+      return nodeCt[node * NT + b] > nodeCt[node * NT + a] ? b : a;
+    }
+    for (n = 8; n < 15; n++) pick[n] = better(n, pick[FEED[n - 8][0]], pick[FEED[n - 8][1]]);
+    pick[15] = better(15, pick[14], OC.length ? OC[0].t : -1);
+
+    var nodes = {};
+    for (n = 0; n < NN; n++) {
       var rows = [];
       for (t = 0; t < NT; t++) {
-        var c = slotCt[(k - 1) * NT + t];
+        var c = nodeCt[n * NT + t];
         if (c) rows.push({ team: t, p: c / nIn });
       }
-      rows.sort(function (a, b) { return b.p - a.p; });
-      if (k === best) {
-        var mine = rows.filter(function (r) { return r.team === J; });
-        rows = (mine.length ? mine : [{ team: J, p: 0 }])
-          .concat(rows.filter(function (r) { return r.team !== J; }));
-      } else {
-        rows = rows.filter(function (r) { return r.team !== J; });
+      rows.sort(function (x, y) { return y.p - x.p; });
+      if (pick[n] >= 0) {
+        var pk = pick[n], mine = rows.filter(function (r) { return r.team === pk; });
+        rows = (mine.length ? mine : [{ team: pk, p: 0 }])
+          .concat(rows.filter(function (r) { return r.team !== pk; }));
       }
-      slots[k] = rows;
+      nodes[NODES[n]] = rows;
     }
-    var rounds = {};
-    for (var ri = 0; ri < ROUND_KEYS.length; ri++) {
-      var rr = [];
-      for (t = 0; t < NT; t++) {
-        var rc = roundCt[ri * NT + t];
-        if (rc) rr.push({ team: t, p: rc / nIn });
-      }
-      rr.sort(function (a, b) { return b.p - a.p; });
-      rounds[ROUND_KEYS[ri]] = rr;
-    }
-    var bye = seed[1] + seed[2];
-    return { seed: seed, bestSeed: best, opponent: opp, slots: slots,
-             pBye: bye, pHost: seed[3] + seed[4], rounds: rounds,
-             road: { alds: roadCt[0] / nIn, alcs: roadCt[1] / nIn,
-                     pennant: roadCt[2] / nIn } };
+    return { nodes: nodes, bestSeat: best, bestSeatP: seatCt[best] / nIn,
+             bestOpp: bo, hosts: seatCt[best] ? seatHost[best] / seatCt[best] : 0,
+             road: { r1: roadCt[0] / nIn, r2: roadCt[1] / nIn, cf: roadCt[2] / nIn,
+                     cup: roadCt[3] / nIn } };
   }
 
   /* ---------------------------------------------------------------- state ---- */
-  var scen = new Array(NS).fill(null);      // null = let the model simulate it
+  var target = null;                         // null = let the model play it out
   var baseline = D.baselineOdds;
   var el = function (id) { return document.getElementById(id); };
   var lastOdds = baseline, tween = null, dragging = false;
 
-  /* Spread `total` wins across the 13 series: repeatedly hand the next win to
-     whichever series is furthest below the share it takes in qualifying seasons. */
-  function allocate(total) {
-    var out = new Array(NS).fill(0), given = 0;
-    while (given < total) {
-      var best = -1, bestScore = -1e9;
-      for (var i = 0; i < NS; i++) {
-        if (out[i] >= D.series[i].n) continue;
-        var sc = D.series[i].need - out[i];
-        if (sc > bestScore) { bestScore = sc; best = i; }
-      }
-      if (best < 0) break;
-      out[best]++; given++;
-    }
-    return out;
-  }
-
-  function lockedTotal() {
-    var w = 0, any = false;
-    for (var s = 0; s < NS; s++) if (scen[s] !== null) { w += scen[s]; any = true; }
-    return any ? w : null;
-  }
-
-  function syncRows() {
-    for (var s = 0; s < NS; s++) {
-      var row = document.querySelector('[data-series="' + s + '"]');
-      if (!row) continue;
-      row.classList.toggle("locked", scen[s] !== null);
-      var btns = row.querySelectorAll("[data-w]");
-      for (var b = 0; b < btns.length; b++) {
-        var on = scen[s] !== null && +btns[b].dataset.w === scen[s];
-        btns[b].classList.toggle("on", on);
-        btns[b].setAttribute("aria-pressed", on ? "true" : "false");
-      }
-    }
-  }
-
   function animateOdds(from, to, instant) {
     if (tween) cancelAnimationFrame(tween);
     var node = el("liveOdds"), bar = el("liveBar");
-    if (instant) {
-      node.textContent = (to * 100).toFixed(1);
-      if (bar) bar.style.width = Math.min(100, to * 100 * 3.2) + "%";
-      return;
+    function paint(v) {
+      node.textContent = (v * 100).toFixed(1);
+      if (bar) bar.style.width = Math.min(100, v * 100) + "%";
     }
+    if (instant) { paint(to); return; }
     var t0 = performance.now(), dur = 400;
     (function step(now) {
-      var p = Math.min(1, (now - t0) / dur);
-      var e = 1 - Math.pow(1 - p, 3);
-      var v = from + (to - from) * e;
-      node.textContent = (v * 100).toFixed(1);
-      if (bar) bar.style.width = Math.min(100, v * 100 * 3.2) + "%";
+      var p = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+      paint(from + (to - from) * e);
       if (p < 1) tween = requestAnimationFrame(step);
     })(t0);
   }
@@ -458,47 +434,33 @@
   function recompute(opts) {
     opts = opts || {};
     if (pending) cancelAnimationFrame(pending);
-    pending = requestAnimationFrame(function () {   // paint the click first
-      pending = null;
-      recomputeNow(opts);
-    });
+    pending = requestAnimationFrame(function () { pending = null; recomputeNow(opts); });
   }
 
   function recomputeNow(opts) {
     var t0 = performance.now();
-    var r = simulate(scen, opts.fast ? NSIM_DRAG : NSIM_FULL, 12345);
+    var r = simulate(target, opts.fast ? NSIM_DRAG : NSIM_FULL, 12345);
     var ms = performance.now() - t0;
-
     animateOdds(lastOdds, r.odds, !!opts.fast);
     lastOdds = r.odds;
 
-    var nLocked = 0, lw = 0, lg = 0, lseries = 0;
-    for (var s = 0; s < NS; s++) {
-      if (scen[s] === null) continue;
-      nLocked++; lw += scen[s]; lg += D.series[s].n;
-      if (scen[s] > D.series[s].n / 2) lseries++;
-    }
-
-    var anySet = nLocked > 0 || anyBias();
+    var anySet = target !== null || anyBias();
     var dEl = el("liveDelta"), diff = r.odds - baseline;
     if (!anySet) {
       dEl.textContent = "model baseline — nothing set yet";
       dEl.className = "livedelta";
     } else {
-      dEl.textContent = (diff >= 0 ? "+" : "−") + Math.abs(diff * 100).toFixed(1)
-        + " pts vs baseline (" + (baseline * 100).toFixed(1) + "%)";
+      dEl.textContent = (diff >= 0 ? "+" : "−") + Math.abs(diff * 100).toFixed(1) +
+        " pts vs baseline (" + (baseline * 100).toFixed(1) + "%)";
       dEl.className = "livedelta " + (diff >= 0.001 ? "up" : diff <= -0.001 ? "down" : "");
     }
-
-    el("liveRec").textContent = nLocked ? (lseries + " of " + NS) : "—";
-    el("liveRecSub").textContent = nLocked
-      ? (nLocked === NS ? "series won · needs " + D.seriesNeeded
-                        : "series won so far · " + nLocked + "/" + NS + " set")
-      : "drag the slider, or tap a series below";
-    el("liveProj").textContent = r.meanWins.toFixed(1);
+    el("liveProj").textContent = r.meanPts.toFixed(1);
     el("liveCut").textContent = r.cut.toFixed(1);
+    var cupEl = el("liveCup");
+    if (cupEl) cupEl.textContent = r.bracket ? (r.odds * r.bracket.road.cup * 100).toFixed(1) + "%" : "0.0%";
 
     for (var t = 0; t < NT; t++) {
+      if (!inConf[t]) continue;
       var f = document.querySelector('[data-oddsbar="' + t + '"]');
       var n2 = document.querySelector('[data-oddsnum="' + t + '"]');
       if (f) f.style.width = (r.teamOdds[t] * 100).toFixed(0) + "%";
@@ -509,135 +471,98 @@
     if (mk && !anySet) {
       mk.style.opacity = 0; lab.style.opacity = 0;
     } else if (mk) {
-      var x = D.curveX0 + (r.meanWins - D.curveW0) / (D.curveW1 - D.curveW0) * (D.curveX1 - D.curveX0);
+      var x = D.curveX0 + (r.meanPts - D.curveP0) / (D.curveP1 - D.curveP0) * (D.curveX1 - D.curveX0);
       x = Math.max(D.curveX0, Math.min(D.curveX1, x));
-      mk.setAttribute("x1", x); mk.setAttribute("x2", x);
-      mk.style.opacity = 1;
-      lab.setAttribute("x", x);
-      lab.setAttribute("text-anchor", x > (D.curveX0 + D.curveX1) / 2 ? "end" : "start");
-      lab.setAttribute("dx", x > (D.curveX0 + D.curveX1) / 2 ? -5 : 5);
-      lab.textContent = "YOUR SCENARIO " + r.meanWins.toFixed(1) + "W";
+      mk.setAttribute("x1", x); mk.setAttribute("x2", x); mk.style.opacity = 1;
+      var right = x > (D.curveX0 + D.curveX1) / 2;
+      lab.setAttribute("x", x); lab.setAttribute("text-anchor", right ? "end" : "start");
+      lab.setAttribute("dx", right ? -5 : 5);
+      lab.textContent = "YOUR SCENARIO " + r.meanPts.toFixed(1) + " PTS";
       lab.style.opacity = 1;
     }
 
-    // keep the slider in step when the change came from somewhere else
-    var sl = el("winSlider");
+    var sl = el("ptsSlider");
     if (sl && !dragging && !opts.fromSlider) {
-      var lt = lockedTotal();
-      sl.value = lt === null ? Math.round(r.meanWins - D.baseW[J]) : lt;
+      sl.value = target === null ? Math.round(D.projPts - D.basePts[J]) : target;
       paintSlider();
     }
-
     if (!opts.fast) paintBracket(r.bracket);
-
     var perf = el("perfNote");
     if (perf) perf.textContent = r.nsim.toLocaleString() + " seasons · " + ms.toFixed(0) + " ms";
-
     if (!opts.fast) writeHash();
   }
 
-  /* ---------------------------------------------------------------- bracket ----
-     Re-drawn on every recompute, so locking a series or forcing a rival cold changes who
-     Toronto would meet in October, not just whether they get there. */
+  /* ---------------------------------------------------------------- bracket ---- */
   function ordinal(n) {
     var s = ["th", "st", "nd", "rd"], v = n % 100;
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
   }
-
+  function roleOf(seatNo) {
+    var d = DIVN[seatNo <= 4 ? 0 : 1];
+    return ["winning the " + d, "a wild card", "2nd in the " + d, "3rd in the " + d][(seatNo - 1) % 4];
+  }
   function paintBracket(bk) {
     var head = el("bkHead");
     if (!head) return;
-    var seats = document.querySelectorAll("[data-node]");
-    if (!bk) {                       // eliminated in every simulated season
-      head.textContent = "No qualifying seasons left to draw a bracket from.";
-      for (var z = 0; z < seats.length; z++) {
-        seats[z].classList.remove("you");
-        seats[z].querySelector("[data-bk-team]").textContent = "—";
-        seats[z].querySelector("[data-bk-p]").textContent = "";
-        var f0 = seats[z].querySelector("[data-bk-fill]");
-        if (f0) f0.style.width = "0%";
-      }
-      return;
-    }
-    for (var i = 0; i < seats.length; i++) {
-      var key = seats[i].dataset.node;
-      var rows = /^\d+$/.test(key) ? (bk.slots[+key] || []) : (bk.rounds[key] || []);
-      var top = rows[0];
-      seats[i].classList.toggle("you", !!top && top.team === J);
-      seats[i].querySelector("[data-bk-team]").textContent = top ? D.abbr[top.team] : "—";
-      seats[i].querySelector("[data-bk-p]").textContent =
-        top ? Math.round(top.p * 100) + "%" : "";
-      var fill = seats[i].querySelector("[data-bk-fill]");
+    var nodesEl = document.querySelectorAll("[data-node]");
+    for (var i = 0; i < nodesEl.length; i++) {
+      var key = nodesEl[i].dataset.node;
+      if (key !== "cup" && key.charAt(0) !== P) continue;     // the other conference is fixed
+      var rows = bk ? (bk.nodes[key] || []) : [], top = rows[0];
+      nodesEl[i].classList.toggle("you", !!top && top.team === J);
+      nodesEl[i].querySelector("[data-bk-team]").textContent = top ? D.teams[top.team] : "—";
+      nodesEl[i].querySelector("[data-bk-p]").textContent = top ? Math.round(top.p * 100) + "%" : "";
+      var fill = nodesEl[i].querySelector("[data-bk-fill]");
       if (fill) fill.style.width = (top ? top.p * 100 : 0) + "%";
-      seats[i].title = rows.slice(0, 3).map(function (r) {
-        return D.abbr[r.team] + " " + Math.round(r.p * 100) + "%";
+      nodesEl[i].title = rows.slice(0, 3).map(function (r) {
+        return D.teams[r.team] + " " + Math.round(r.p * 100) + "%";
       }).join(", ");
     }
-    ["alds", "alcs", "pennant"].forEach(function (k) {
+    if (!bk) { head.textContent = "No qualifying seasons left to draw a bracket from."; return; }
+    ["r1", "r2", "cf", "cup"].forEach(function (k) {
       var bar = document.querySelector('[data-road="' + k + '"]');
       var val = document.querySelector('[data-road-v="' + k + '"]');
       if (bar) bar.style.width = (bk.road[k] * 100).toFixed(0) + "%";
-      if (val) val.textContent = (bk.road[k] * 100).toFixed(0) + "%";
+      if (val) val.textContent = (bk.road[k] * 100).toFixed(k === "cup" ? 1 : 0) + "%";
     });
-    var best = bk.bestSeed, opp = bk.opponent[0];
-    if (opp && opp.team === null) {
-      head.innerHTML = "Most likely the <b>" + ordinal(best) +
-        " seed</b> — <b>a bye</b> straight to the Division Series";
-    } else if (opp) {
-      head.innerHTML = "Most likely the <b>" + ordinal(best) + " seed</b>, " +
-        (best >= 5 ? "at" : "hosting") + " <b>the " + D.teams[opp.team] +
-        "</b> in the Wild Card round";
-    } else {
-      head.textContent = "Seeding is still wide open";
-    }
+    var opp = bk.bestOpp >= 0 ? D.names[bk.bestOpp] : null;
+    head.innerHTML = "Most likely <b>" + roleOf(bk.bestSeat) + "</b> (" +
+      Math.round(bk.bestSeatP * 100) + "% of qualifying seasons)" +
+      (opp ? ", " + (bk.hosts >= 0.5 ? "hosting" : "at") + " <b>the " + opp +
+             "</b> in the first round" : "");
   }
 
   /* ------------------------------------------------------------ share the scenario ----
-     The whole scenario lives in the URL hash — series results as a dotted list (x =
-     left to the model), rival biases as teamIndex+h/c — so a fan can send "here's the
-     path" as a link. replaceState, not assignment, so dragging never scrolls the page
-     or pollutes history. */
+     The scenario lives in the URL hash — Toronto's points as s=, rival biases as
+     teamIndex+h/c — so a fan can send the exact path as a link. replaceState, not
+     assignment, so dragging never scrolls the page or pollutes history. */
   var lastHash = null;
   function writeHash() {
-    var parts = [], ss = [], anyS = false, s, t;
-    for (s = 0; s < NS; s++) {
-      ss.push(scen[s] === null ? "x" : scen[s]);
-      if (scen[s] !== null) anyS = true;
-    }
-    if (anyS) parts.push("s=" + ss.join("."));
+    var parts = [];
+    if (target !== null) parts.push("s=" + target);
     var bs = [];
-    for (t = 0; t < NT; t++) if (rivalMode[t]) bs.push(t + (rivalMode[t] > 0 ? "h" : "c"));
+    for (var t = 0; t < NT; t++) if (rivalMode[t]) bs.push(t + (rivalMode[t] > 0 ? "h" : "c"));
     if (bs.length) parts.push("r=" + bs.join("."));
     var h = parts.join("&");
     if (h === lastHash) return;
     lastHash = h;
-    if (history.replaceState) {
-      history.replaceState(null, "", h ? "#" + h
-                                       : location.pathname + location.search);
-    }
+    if (history.replaceState) history.replaceState(null, "", h ? "#" + h : location.pathname + location.search);
   }
-
   function readHash() {
-    var h = location.hash.slice(1);
+    var h = location.hash.slice(1), got = false;
     if (!h) return false;
-    var got = false;
     h.split("&").forEach(function (kv) {
       var i = kv.indexOf("=");
       if (i < 0) return;
       var k = kv.slice(0, i), v = kv.slice(i + 1);
       if (k === "s") {
-        var ps = v.split(".");
-        for (var s = 0; s < NS && s < ps.length; s++) {
-          if (ps[s] === "x") continue;
-          var w = parseInt(ps[s], 10);
-          if (w >= 0 && w <= D.series[s].n) { scen[s] = w; got = true; }
-        }
+        var n = parseInt(v, 10);
+        if (n >= 0 && n <= TOTAL_PTS) { target = n; got = true; }
       } else if (k === "r") {
         v.split(".").forEach(function (tok) {
           var m = /^(\d+)([hc])$/.exec(tok);
-          if (m && +m[1] < NT && +m[1] !== J) {
-            rivalMode[+m[1]] = m[2] === "h" ? 1 : -1;
-            got = true;
+          if (m && +m[1] < NT && +m[1] !== J && inConf[+m[1]]) {
+            rivalMode[+m[1]] = m[2] === "h" ? 1 : -1; got = true;
           }
         });
       }
@@ -646,40 +571,31 @@
   }
 
   /* ---------------------------------------------------------------- slider ---- */
-  var sl = el("winSlider");
-
+  var sl = el("ptsSlider");
   function paintSlider() {
     if (!sl) return;
-    var w = +sl.value, pctv = (w / TOTAL_GAMES) * 100;
-    sl.style.setProperty("--fill", pctv + "%");
+    var v = +sl.value;
+    sl.style.setProperty("--fill", (v / TOTAL_PTS * 100) + "%");
     var lab = el("sliderVal");
-    if (lab) lab.textContent = w + "–" + (TOTAL_GAMES - w);
+    if (lab) lab.textContent = v + " pts";
     var pace = el("sliderPace");
-    if (pace) {
-      var wp = w / TOTAL_GAMES;
-      pace.textContent = "." + Math.round(wp * 1000) + " pace over the last "
-        + TOTAL_GAMES + " games";
-    }
+    if (pace) pace.textContent = (v / TOTAL_PTS).toFixed(3).replace(/^0/, "") +
+      " points pace over the last " + GL + " games";
   }
-
   if (sl) {
-    sl.max = TOTAL_GAMES;
-    sl.value = Math.round(D.projWins - D.baseW[J]);
+    sl.max = TOTAL_PTS;
+    sl.value = Math.round(D.projPts - D.basePts[J]);
     paintSlider();
-
-    var applyFromSlider = function (fast) {
-      var target = +sl.value;
-      var alloc = allocate(target);
-      for (var s = 0; s < NS; s++) scen[s] = alloc[s];
-      syncRows();
+    var fromSlider = function (fast) {
+      target = +sl.value;
       paintSlider();
       recompute({ fast: fast, fromSlider: true });
     };
     sl.addEventListener("pointerdown", function () { dragging = true; });
-    sl.addEventListener("input", function () { applyFromSlider(true); });
-    sl.addEventListener("change", function () { dragging = false; applyFromSlider(false); });
+    sl.addEventListener("input", function () { fromSlider(true); });
+    sl.addEventListener("change", function () { dragging = false; fromSlider(false); });
     sl.addEventListener("pointerup", function () { dragging = false; });
-    sl.addEventListener("keyup", function () { dragging = false; applyFromSlider(false); });
+    sl.addEventListener("keyup", function () { dragging = false; fromSlider(false); });
   }
 
   /* ---------------------------------------------------------------- rivals ---- */
@@ -690,52 +606,53 @@
       b.setAttribute("aria-pressed", on ? "true" : "false");
     });
   }
-
   document.querySelectorAll("[data-rival]").forEach(function (b) {
     b.addEventListener("click", function () {
       var t = +b.dataset.rival, m = +b.dataset.mode;
-      rivalMode[t] = (rivalMode[t] === m) ? 0 : m;         // click again to release
-      syncRivalBtns();
-      rebuildEff();
+      rivalMode[t] = (rivalMode[t] === m) ? 0 : m;        // click again to release
+      syncRivalBtns(); rebuildEff(); recompute({});
+    });
+  });
+
+  /* ---------------------------------------------------------------- presets ---- */
+  document.querySelectorAll("[data-preset]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var p = b.dataset.preset;
+      if (p === "reset") {
+        target = null;
+        for (var t = 0; t < NT; t++) rivalMode[t] = 0;
+        syncRivalBtns(); rebuildEff();
+      } else if (p === "min") {
+        target = Math.min(TOTAL_PTS, D.rosNeeded);
+      } else {
+        target = Math.round(TOTAL_PTS * parseFloat(p));    // a points-percentage pace
+      }
       recompute({});
     });
   });
 
   /* ---------------------------------------------------------------- share ---- */
-  /* One control, not two. It shares the scenario when one is set and the page otherwise,
-     and it leads with the NUMBER rather than a bare link — Slack and SMS often do not
-     render the preview card, and a naked URL is not a reason to tap. Uses the native
-     share sheet where there is one, which on a phone is the difference between one tap to
-     iMessage and a string somebody has to paste. */
   var shareBtn = el("shareBtn");
   if (shareBtn) {
     var shareHTML = shareBtn.innerHTML;
     var flash = function (text) {
-      shareBtn.textContent = text;
-      shareBtn.disabled = true;
-      setTimeout(function () {
-        shareBtn.innerHTML = shareHTML;
-        shareBtn.disabled = false;
-      }, 1700);
+      shareBtn.textContent = text; shareBtn.disabled = true;
+      setTimeout(function () { shareBtn.innerHTML = shareHTML; shareBtn.disabled = false; }, 1700);
     };
     shareBtn.addEventListener("click", function () {
-      var url = location.href;
-      var pct = (lastOdds * 100).toFixed(1);
-      var scen = location.hash.length > 1;
-      var text = scen
-        ? "Blue Jays " + pct + "% to make the playoffs in this scenario ("
-          + (baseline * 100).toFixed(1) + "% as things stand)"
-        : "Blue Jays " + pct + "% to make the playoffs";
+      var url = location.href, pct = (lastOdds * 100).toFixed(1);
+      var text = location.hash.length > 1
+        ? D.shareName + " " + pct + "% to make the playoffs in this scenario (" +
+          (baseline * 100).toFixed(1) + "% as things stand)"
+        : D.shareName + " " + pct + "% to make the playoffs";
       if (navigator.share) {
-        navigator.share({ title: "Blue Jays Playoff Tracker", text: text, url: url })
-          .then(function () { flash("Shared ✓"); },
-                function () { /* the sheet was dismissed: say nothing */ });
+        navigator.share({ title: D.shareTitle, text: text, url: url })
+          .then(function () { flash("Shared ✓"); }, function () {});
         return;
       }
       var copy = text + " — " + url;
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(copy).then(
-          function () { flash("Copied ✓"); },
+        navigator.clipboard.writeText(copy).then(function () { flash("Copied ✓"); },
           function () { window.prompt("Copy this:", copy); });
       } else {
         window.prompt("Copy this:", copy);
@@ -743,49 +660,6 @@
     });
   }
 
-  /* ---------------------------------------------------------------- buttons ---- */
-  document.querySelectorAll("[data-w]").forEach(function (b) {
-    b.addEventListener("click", function () {
-      var s = +b.closest("[data-series]").dataset.series, v = +b.dataset.w;
-      scen[s] = (scen[s] === v) ? null : v;      // click again to release
-      syncRows();
-      recompute({});
-    });
-  });
-
-  document.querySelectorAll("[data-preset]").forEach(function (b) {
-    b.addEventListener("click", function () {
-      var p = b.dataset.preset, s, alloc;
-      if (p === "reset") {
-        for (s = 0; s < NS; s++) scen[s] = null;
-        for (var t = 0; t < NT; t++) rivalMode[t] = 0;
-        syncRivalBtns();
-        rebuildEff();
-        if (sl) { sl.value = Math.round(D.projWins - D.baseW[J]); paintSlider(); }
-      } else if (p === "min") {
-        alloc = allocate(D.rosNeededW);
-        for (s = 0; s < NS; s++) scen[s] = alloc[s];
-      } else if (p === "twoone") {
-        // "2-1 every series", generalised to series that aren't 3 games:
-        // win two thirds of each, so a 2-game set is a sweep and a 4-game set is 3-1
-        for (s = 0; s < NS; s++) scen[s] = Math.max(1, Math.ceil(D.series[s].n * 2 / 3));
-      } else if (p === "sweep") {
-        for (s = 0; s < NS; s++) scen[s] = D.series[s].n;
-      } else if (p === "cold") {
-        // the slump mirrors it: one third of each series, floor of one loss
-        for (s = 0; s < NS; s++) scen[s] = Math.min(D.series[s].n - 1,
-                                                    Math.floor(D.series[s].n / 3));
-      }
-      syncRows();
-      recompute({});
-    });
-  });
-
-  // restore a shared scenario from the URL before the first simulation runs
-  if (readHash()) {
-    syncRows();
-    syncRivalBtns();
-    rebuildEff();
-  }
+  if (readHash()) { syncRivalBtns(); rebuildEff(); }
   recompute({});
 })();
