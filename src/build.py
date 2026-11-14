@@ -29,12 +29,17 @@ def verify(path):
     problems = []
     if len(html) < 30_000:
         problems.append(f"suspiciously small ({len(html)} bytes)")
+    # a budget, not a guess: the motion graphics ship their data inline, and a page that
+    # quietly doubles is a page that stutters on a phone on arena wifi
+    if len(html) > 350_000:
+        problems.append(f"over the 350 KB page budget ({len(html) / 1024:.0f} KB)")
     ext = [u for u in re.findall(r'(?:src|href)="(?!data:|#)([^"]+)"', html)
            if not u.startswith("data:")]
     if ext:
         problems.append(f"external references present: {ext[:5]}")
     low = html.lower()
-    for needle in ("ptsslider", "play it out", "__sim__", "liveodds", "data-preset", "data-node"):
+    for needle in ("ptsslider", "play it out", "__sim__", "liveodds", "data-preset", "data-node",
+                   'id="machine"', 'id="cone"', "__viz__"):
         if needle not in low:
             problems.append(f"missing expected content: {needle!r}")
     if "localStorage" in html:

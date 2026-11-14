@@ -160,6 +160,13 @@
   var gH = D.gH, gA = D.gA, gP = D.gP, gJ = D.gJ;
   var NSIM_FULL = 5000, NSIM_DRAG = 1200;          // fewer seasons while a drag is live
   var P_OT = D.pOt, HFA = D.hfa, TAL = D.talent, SER = D.series;
+  // strength uncertainty, as in model.simulate: each season draws every club's strength
+  // from a range around its estimate (log-odds sd per club), playoffs included
+  var SD = D.sd || [], HAS_SD = false;
+  for (var si = 0; si < SD.length; si++) if (SD[si] > 0) HAS_SD = true;
+  var LT = new Float64Array(NT), NZ = new Float64Array(NT), EN = new Float64Array(NT);
+  var TS = Float64Array.from(TAL);
+  for (var li = 0; li < NT; li++) LT[li] = Math.log(TAL[li] / (1 - TAL[li]));
   var CONF = D.confIdx, DIVS = D.divs, DIVN = D.divNames, P = D.confPrefix;
   var inConf = new Uint8Array(NT);
   for (var ci = 0; ci < CONF.length; ci++) inConf[CONF[ci]] = 1;
@@ -190,7 +197,18 @@
       }
       gPeff[g] = p;
     }
+    syncLg();
   }
+  // each game's away-to-home odds, so a season's strength draws cost a multiply and a
+  // divide per game rather than an exp(): p = 1 / (1 + odds * e^(nz_away) / e^(nz_home))
+  var oddsEff = new Float64Array(NG);
+  function syncLg() {
+    for (var g = 0; g < NG; g++) {
+      var q = Math.min(0.9999, Math.max(0.0001, gPeff[g]));
+      oddsEff[g] = (1 - q) / q;
+    }
+  }
+  syncLg();
   function anyBias() {
     for (var t = 0; t < NT; t++) if (rivalMode[t]) return true;
     return false;
@@ -216,7 +234,7 @@
   }
   function series(a, b, sa, sb, rand) {
     var hi = sa >= sb ? a : b, lo = sa >= sb ? b : a, w = 0;
-    for (var i = 0; i < SER.length; i++) if (rand() < pGame(TAL[hi], TAL[lo], !!SER[i])) w++;
+    for (var i = 0; i < SER.length; i++) if (rand() < pGame(TS[hi], TS[lo], !!SER[i])) w++;
     return w > (SER.length >> 1) ? hi : lo;
   }
   // the other conference's champion, sampled from the Python run (nothing on this page
@@ -279,6 +297,18 @@
         }
       }
       for (t = 0; t < CONF.length; t++) { pts[CONF[t]] = D.basePts[CONF[t]]; rw[CONF[t]] = D.baseRw[CONF[t]]; }
+      if (HAS_SD) {
+        // this season's version of every club: Box-Muller pairs from the seeded stream
+        for (t = 0; t < NT; t += 2) {
+          var u1 = rand() || 1e-12, u2 = rand(), rr = Math.sqrt(-2 * Math.log(u1));
+          NZ[t] = rr * Math.cos(6.283185307 * u2) * SD[t];
+          if (t + 1 < NT) NZ[t + 1] = rr * Math.sin(6.283185307 * u2) * SD[t + 1];
+        }
+        for (t = 0; t < NT; t++) {
+          EN[t] = Math.exp(NZ[t]);
+          TS[t] = 1 / (1 + Math.exp(-(LT[t] + NZ[t])));
+        }
+      }
 
       for (g = 0; g < NG; g++) {
         var h = gH[g], a = gA[g], s = gJ[g], hw, ot;
@@ -287,7 +317,7 @@
           hw = (h === J) ? fw : !fw;
           ot = focusRes[s] === 1 ? true : (fw ? rand() < P_OT : false);
         } else {
-          hw = rand() < gPeff[g];
+          hw = rand() < (HAS_SD ? 1 / (1 + oddsEff[g] * EN[a] / EN[h]) : gPeff[g]);
           ot = rand() < P_OT;
         }
         if (hw) {

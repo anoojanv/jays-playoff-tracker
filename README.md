@@ -126,6 +126,8 @@ anyone looking at a stale page pull the latest results themselves.
 | `src/ensemble.py` | 10 model specifications, for the sensitivity range |
 | `src/analyze.py` | What it takes: points needed, pace, what qualifying seasons look like |
 | `src/export_sim.py` | ~16 KB model bundle for the in-browser simulator |
+| `src/motion.js` | The motion graphics — season machine, forecast cone, reveals — inlined into the page |
+| `src/backtest.py` | Not nightly. Replays a finished season through the real model and grades it; writes `data/backtest_<season>.json`, which is committed |
 | `src/build_html.py` | Renders the page |
 | `src/og_image.py` | The 1200×630 share card `og:image` points at. Best-effort: never fails a build |
 | `src/build.py` | Runs all of the above, then verifies the output before it can be published |
@@ -147,7 +149,7 @@ The season length itself is read off the schedule — the NHL went from 82 games
 Before a puck drops every club has zero points, and a model that only knows this season
 would rate all 32 identically — the ensemble's "this season only" row lands on 49%, which
 is just the share of clubs that make it. So the model pools **last season's** final
-record as a prior worth 40 games, and lets this season take over as games are played.
+record as a prior worth 25 games, and lets this season take over as games are played.
 The page says so in the headline ("on last season's form"), drops the division place
 from the header (with everyone on zero it would be alphabetical), and orders the race
 table by projected points rather than standings.
@@ -156,14 +158,64 @@ table by projected points rather than standings.
 
 Team strength is the probability of beating an average club: goal-based Pythagorean win%
 (exponent 2.1) blended 70/30 with actual win%, pooled across last season and this one,
-then regressed toward .500 with a 40-game prior. Each remaining game is a log5 matchup
-plus home ice, measured from last season (the home side won 52.2%).
+then regressed toward .500 with 70 games' worth of an average club. Each remaining game is
+a log5 matchup plus home ice, measured from last season (the home side won 52.2%).
+
+**Strength is uncertain, and the model says so.** Each simulated season draws every club's
+strength from a range around its estimate — about 2/√n on the log-odds scale, where n is
+everything the estimate stands on, scaled by `SIGMA_SCALE` — and plays the whole season,
+playoffs included, with that draw. The range narrows as games are played. Without it the
+model treated an estimate as a fact and was overconfident at both ends.
 
 A separate draw decides whether a game went past regulation (24.9% last season), which is
 what hands the loser a point: **two for a win of any kind, one for an overtime or
 shootout loss**. Standings run on points, then regulation wins — the NHL's first
 tiebreaker — then a coin. The field is the top three in each division plus two wild cards
 per conference.
+
+## Is it any good? The report card
+
+A model should not mark its own homework, so `src/backtest.py` grades it against seasons
+that already happened. It replays a season week by week from opening night through the real
+pipeline, knowing only what was known that morning — the season before as the prior, and
+the games played so far — and scores all 32 clubs' playoff odds against who actually made
+it, by the league's own clinch flag. Two baselines keep it honest: a coin (every club 50%)
+and the standings (100% for clubs in a playoff spot that morning, 0% otherwise). The score
+is the Brier score — mean squared error of a probability, lower is better, a coin is 0.250.
+
+**What it found.** The first version beat both baselines over 2025–26 (0.169, against 0.243
+for the standings) but **lost to a coin over the first seven weeks** (0.267): it leaned on
+last season too hard and treated strength as known. The fix was fitted on **2024–25 only** —
+last season's weight 40 → 25 games, regression 40 → 70, strength uncertainty on — and then
+graded on **2025–26, which the fit never saw**: 0.159 over the season and 0.242 over the
+first seven weeks, now better than a coin. Both runs are committed in `data/`, and
+`tests/test_motion.py` holds the page's claims to them. The 896 predictions per season are
+not independent (the same clubs, week after week), and the page says so.
+
+Re-run it each spring once a season is final: `python src/backtest.py <season>`.
+
+## The motion graphics
+
+Motion here explains something or it isn't there.
+
+- **Every dot is a season.** A canvas of dots — about 500 on a phone, up to 4,000 on a
+  desktop — each a batch of simulated
+  seasons, poured from a hopper into a histogram of the Leafs' final points, navy if that
+  season makes the playoffs. The counter is the share of landed dots that are navy, so the
+  estimate visibly wobbles and settles — which is all a Monte Carlo is. *Beat / lose to*
+  tonight's opponent re-sorts the same seasons to where they finish if it goes that way;
+  every dot glides to its new column.
+- **The forecast cone**, borrowed from hurricane forecasting: the season so far as a solid
+  line, 48 real simulated paths fanning out, then the 50% and 90% bands and the median.
+  Drag across it to read any game. Drawn at the container's real width, so its text is the
+  size it says on a phone too.
+- **Reveals.** Sections, bars, calibration dots and the report card's lines animate in as
+  they scroll into view.
+
+Rules: nothing is hidden unless the script is running, so a failure leaves a complete page;
+`prefers-reduced-motion` gets the final state with no movement; everything runs on
+`requestAnimationFrame` (steady 60 fps with 4,000 dots in headless Chromium); no network, no
+storage. The page has a 350 KB budget that the verifier enforces.
 
 ## If they get in
 
@@ -196,7 +248,8 @@ the Western champion sampled from the Python run, so every scenario redraws it.
   1.348/√G over G remaining games) — tapping *cold* moves the odds by about what the bar
   beside it promises.
 
-Every change re-runs 5,000 seasons of the Eastern Conference in the browser (the other
+Every change re-runs 5,000 seasons of the Eastern Conference in the browser, with the same
+per-season strength draws as the Python model so a scenario stays comparable with the headline (the other
 conference cannot move Toronto's odds of qualifying, so it is left out and each re-run
 stays fast). The scenario round-trips through the URL hash, so **Share** sends the exact
 scenario.
@@ -249,7 +302,8 @@ python tests/test_momentum.py   # the momentum rating's semantics
 python tests/test_sos.py        # strength of schedule
 python tests/test_history.py    # the day-over-day deltas and the page's own history
 node   tests/test_refresh.mjs   # the Refresh button's endpoint, GitHub mocked
-python tests/test_endgame.py    # preseason, mid-season, clinched, eliminated
+python tests/test_motion.py     # the data the motion graphics draw, and the backtest's claims
+python tests/test_endgame.py    # preseason, mid-season, clinched, eliminated, with history
 python tests/make_fixture.py    # rebuild the fixture (must be byte-identical; CI checks)
 ```
 

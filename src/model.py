@@ -11,7 +11,10 @@ Talent     : the probability of beating an average club. Goals-based Pythagorean
              (exponent 2.1) blended 70/30 with actual win%, pooled across last season
              and this one, then regressed toward .500. Last season counts as PRIOR_WEIGHT
              games, so it carries a preseason projection on its own and fades as real
-             games arrive — by midseason this season outweighs it two to one.
+             games arrive — by midseason this season outweighs it.
+             Each simulated season then draws every club's strength from a range
+             around that estimate (SIGMA_SCALE), so the odds carry the uncertainty in
+             the estimate as well as the luck of the games.
 Games      : log5 matchup plus home ice, as an odds multiplier measured from last
              season (home sides won 52.2%, well under hockey folklore). Whether a game
              goes past regulation is drawn separately at the measured rate (24.8%), which
@@ -33,8 +36,15 @@ SEASON_GAMES = D.SEASON_GAMES
 
 PYTH_EXP = 2.1          # goals-based Pythagorean exponent for hockey
 PYTH_WEIGHT = 0.70      # goal differential against raw win%
-PRIOR_WEIGHT = 40.0     # games last season is worth in the pooled estimate
-REG_PRIOR = 40.0        # games of .500 regression on top
+PRIOR_WEIGHT = 25.0     # games last season is worth in the pooled estimate
+REG_PRIOR = 70.0        # games of .500 regression on top
+# How unsure the strength estimate itself is, as a multiple of its sampling error. Each
+# simulated season draws every club's strength from that range rather than treating the
+# estimate as known. These three constants were fitted on the 2024-25 season and then
+# graded on 2025-26, which the fit never saw: Brier 0.169 -> 0.158 over the season, and
+# 0.262 -> 0.237 in the first seven weeks, where the old values lost to a coin (0.25).
+# See src/backtest.py; data/backtest_*.json holds the graded runs.
+SIGMA_SCALE = 0.5
 
 P_OT = float(D.LEAGUE["p_ot"])
 HOME_WIN = float(D.LEAGUE["home_win"])
@@ -93,6 +103,20 @@ def build_talent(pyth_weight=PYTH_WEIGHT, prior_weight=PRIOR_WEIGHT, reg_prior=R
 
 
 talent = build_talent()
+
+
+def talent_sd(scale=SIGMA_SCALE, prior_weight=PRIOR_WEIGHT, reg_prior=REG_PRIOR):
+    """Uncertainty in each club's strength, on the log-odds scale.
+
+    A win rate measured over n games has a standard error of about 2/sqrt(n) in log-odds.
+    n here is everything the estimate stands on — last season's weight, this season's
+    games and the regression — so it narrows as the season is played.
+    """
+    out = {}
+    for t in TEAMS:
+        n = (prior_weight if D.PRIOR.get(t) else 0.0) + D.played(t) + reg_prior
+        out[t] = scale * 2.0 / math.sqrt(max(n, 1.0))
+    return out
 
 
 def log5(a, b):
@@ -235,7 +259,7 @@ class State:
         self.__dict__.update(kw)
 
 
-def simulate(nsim=None, seed=SEED, tal=None, hfa=HFA_ODDS, p_ot=P_OT):
+def simulate(nsim=None, seed=SEED, tal=None, hfa=HFA_ODDS, p_ot=P_OT, sd=None):
     """Run the Monte Carlo. Deterministic given the seed, the size and the schedule.
 
     Two draws per game: who wins, and whether it went past regulation. The winner takes
@@ -246,11 +270,22 @@ def simulate(nsim=None, seed=SEED, tal=None, hfa=HFA_ODDS, p_ot=P_OT):
     rng = np.random.default_rng(seed)
     ph = p_home if (tal is None and hfa == HFA_ODDS) else home_probs(tal, hfa)
 
+    # every season draws its own version of each club's strength. log5 with home ice is
+    # a difference of log-odds, so a club's draw shifts all of its games consistently
+    base = tal or talent
+    sd = sd if sd is not None else talent_sd()
+    sdv = np.array([sd[t] for t in TEAMS], dtype=np.float32)
+    noise = rng.standard_normal((NT, nsim), dtype=np.float32) * sdv[:, None]
+    lt = np.array([math.log(base[t] / (1 - base[t])) for t in TEAMS], dtype=np.float32)
+    tal_sim = 1 / (1 + np.exp(-(lt[:, None] + noise)))
+    lph = np.log(ph / (1 - ph)).astype(np.float32)
+
     home_wins = np.empty((NG, nsim), dtype=bool)
     ot = np.empty((NG, nsim), dtype=bool)
     for s in range(0, NG, 64):
         e = min(s + 64, NG)
-        home_wins[s:e] = rng.random((e - s, nsim)) < ph[s:e, None]
+        lp = lph[s:e, None] + noise[g_home[s:e]] - noise[g_away[s:e]]
+        home_wins[s:e] = rng.random((e - s, nsim), dtype=np.float32) < 1 / (1 + np.exp(-lp))
         ot[s:e] = rng.random((e - s, nsim)) < p_ot
 
     pts = np.empty((NT, nsim), dtype=np.int16)
@@ -298,6 +333,7 @@ def simulate(nsim=None, seed=SEED, tal=None, hfa=HFA_ODDS, p_ot=P_OT):
         focus_ot[k] = ot[i]
 
     return State(pts=pts, rw=rw, score=score, div_rank=div_rank, wc_rank=wc_rank,
+                 tal_sim=tal_sim,
                  playoff=playoff, focus_in=playoff[J], focus_pts=pts[J],
                  focus_won=focus_won, focus_ot=focus_ot,
                  home_wins=home_wins, ot=ot, nsim=nsim)
@@ -397,14 +433,16 @@ def postseason(st, rng):
     Returns every node of the bracket as an (nsim,) array of team indices. Home ice in
     every series goes to the better regular season, as the NHL awards it.
     """
-    tal = np.array([talent[t] for t in TEAMS])
     cols = np.arange(st.score.shape[1])
+    # the same drawn strengths the season was played with, so a club that over-ran its
+    # estimate in the regular season carries that into April
+    tal = st.tal_sim
 
     def play(a, b):
         a_hosts = st.score[a, cols] >= st.score[b, cols]
         hi = np.where(a_hosts, a, b)
         lo = np.where(a_hosts, b, a)
-        return np.where(play_series(rng, tal[hi], tal[lo]), hi, lo)
+        return np.where(play_series(rng, tal[hi, cols], tal[lo, cols]), hi, lo)
 
     out = {}
     for c in sorted(D.CONFERENCES):

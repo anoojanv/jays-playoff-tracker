@@ -69,6 +69,9 @@ jobs:
       - name: Seeding and drawing the bracket
         run: python tests/test_bracket.py
 
+      - name: What the motion graphics draw, and the backtest behind the report card
+        run: python tests/test_motion.py
+
       - name: The page builds preseason, mid-season and once the race is decided
         run: python tests/test_endgame.py
 

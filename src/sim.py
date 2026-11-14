@@ -185,6 +185,47 @@ out["pass_given_in"] = float(passed[fin].mean()) if fin.any() else 0.0
 
 out["bracket"] = model.bracket(st)
 
+# ---- motion data. The page animates the simulation itself, so it needs its shape, not
+# just its summary: where the seasons land, and the paths they take to get there.
+
+def _hist(mask):
+    """Final points of the focus club over the seasons in `mask`, split in/out."""
+    p, q = fpts[mask], fin[mask]
+    return {"in": np.bincount(p[q] - _lo, minlength=_nb)[:_nb].tolist(),
+            "out": np.bincount(p[~q] - _lo, minlength=_nb)[:_nb].tolist(),
+            "n": int(mask.sum()), "odds": float(q.mean()) if mask.any() else 0.0}
+
+
+fpts = st.focus_pts.astype(np.int64)
+_lo, _hi = int(np.percentile(fpts, 0.2)), int(np.percentile(fpts, 99.8))
+fpts = np.clip(fpts, _lo, _hi)
+_nb = _hi - _lo + 1
+_all = np.ones(NSIM, dtype=bool)
+machine = {"lo": _lo, "hi": _hi, "nsim": NSIM, "cut": out["cut_pts"],
+           "states": {"model": _hist(_all)}}
+if st.focus_won.shape[0]:
+    # tonight's two futures: the same seasons, split by the next game's result
+    machine["states"]["win"] = _hist(st.focus_won[0])
+    machine["states"]["loss"] = _hist(~st.focus_won[0])
+out["machine"] = machine
+
+# the forecast cone: the focus club's points after each remaining game, read off every
+# season, as quantile bands plus a few dozen real paths drawn from the simulation
+_fg = [games[i] for i in model.focus_game_ix]
+_step = (2 * st.focus_won + (~st.focus_won & st.focus_ot)).astype(np.int16)
+_paths = D.points(FOCUS) + np.cumsum(_step, axis=0)            # (games, nsim)
+_q = np.percentile(_paths, [5, 25, 50, 75, 95], axis=1) if len(_fg) else np.zeros((5, 0))
+_rng = np.random.default_rng(model.SEED + 11)
+_pick = _rng.choice(NSIM, size=min(48, NSIM), replace=False)
+out["cone"] = {
+    "start_pts": D.points(FOCUS), "start_gp": int(T["w"] + T["l"] + T["otl"]),
+    "dates": [g[0] for g in _fg],
+    "q": {k: [round(float(v), 1) for v in row] for k, row in zip(("p5", "p25", "p50", "p75", "p95"), _q)},
+    "paths": [{"pts": _paths[:, j].astype(int).tolist(), "in": bool(fin[j])} for j in _pick],
+    "log": D.LOG,
+    "season_games": D.SEASON_GAMES,
+}
+
 with open("results.json", "w") as f:
     json.dump(out, f, indent=1)
 
