@@ -166,6 +166,7 @@ def main():
         "DIVISIONS": divisions, "CONFERENCES": conferences,
         "GAMES": remaining, "TIMES": times,
         "RECENT": fd.recent_form(played, "TOR"),
+        "LOG": fd.season_log(played, "TOR"),
         # empty: a fixture build starts its own history, so nothing to freeze
         "HISTORY": "",
         "fingerprint": fd.fingerprint(rows),

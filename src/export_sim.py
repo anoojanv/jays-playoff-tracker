@@ -46,6 +46,9 @@ out = {
     "nFocusGames": slot,
     "focusIdx": idx[FOCUS],
     "talent": [round(float(talent[t]), 6) for t in TEAMS],
+    # each season draws every club's strength from this range, exactly as the Python
+    # model does, so a scenario's odds stay comparable with the headline
+    "sd": [round(float(v), 6) for v in (lambda sd: [sd[t] for t in TEAMS])(model.talent_sd())],
     "hfa": model.HFA_ODDS, "pOt": model.P_OT, "series": SERIES,
     "otherChamps": champs,
     "baselineOdds": float(st.focus_in.mean()),

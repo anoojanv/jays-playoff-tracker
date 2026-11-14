@@ -217,6 +217,23 @@ def recent_form(games, team, limit=25):
     return out[-limit:]
 
 
+def season_log(games, team):
+    """The focus club's whole season so far, oldest first, with its points after each game."""
+    out, pts = [], 0
+    for g in sorted(games, key=lambda x: (x["date"], x["id"])):
+        if g["state"] not in FINAL_STATES or team not in (g["away"], g["home"]):
+            continue
+        at_home = g["home"] == team
+        mine, theirs = (g["hs"], g["as"]) if at_home else (g["as"], g["hs"])
+        if mine is None or theirs is None:
+            continue
+        res = "W" if mine > theirs else ("OTL" if g["period"] in ("OT", "SO") else "L")
+        pts += {"W": 2, "OTL": 1, "L": 0}[res]
+        out.append({"date": g["date"], "opp": g["away"] if at_home else g["home"],
+                    "home": at_home, "res": res, "pts": pts})
+    return out
+
+
 def published_history():
     """The history carried by the page currently live — but only if it is THIS tracker's.
 
@@ -327,6 +344,7 @@ def main():
         "DIVISIONS": divisions, "CONFERENCES": conferences,
         "GAMES": remaining, "TIMES": times,
         "RECENT": recent_form(games, FOCUS),
+        "LOG": season_log(games, FOCUS),
         "HISTORY": published_history(),
         "fingerprint": fingerprint(now_rows),
     }

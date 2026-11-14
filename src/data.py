@@ -1,7 +1,10 @@
 """Loads build/data.json (written by fetch_data.py) and exposes it to the pipeline."""
 import json, os
 
-_P = os.path.join(os.path.dirname(__file__), "..", "build", "data.json")
+# TRACKER_DATA points the whole pipeline at another data file — backtest.py replays a
+# past season through the real model this way, one snapshot at a time
+_P = os.environ.get("TRACKER_DATA") or os.path.join(
+    os.path.dirname(__file__), "..", "build", "data.json")
 with open(_P) as f:
     _D = json.load(f)
 
@@ -25,6 +28,9 @@ GAMES        = [tuple(g) for g in _D["GAMES"]]
 TIMES        = _D.get("TIMES", {})
 # the focus club's completed games, oldest first; drives the momentum rating
 RECENT       = _D.get("RECENT", [])
+# every completed focus-club game this season, oldest first: date, opponent, home, result
+# (W, L or OTL) and the club's points after it; draws the cone's solid line
+LOG          = _D.get("LOG", [])
 # encoded readings carried forward from the published page; see history.py
 HISTORY      = _D.get("HISTORY", "")
 FINGERPRINT  = _D.get("fingerprint", "")

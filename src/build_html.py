@@ -646,16 +646,201 @@ else:
     takes_ctx = ""
 
 # ------------------------------------------------------------------ nav
-SECTIONS = [("play", "Play it out")]
+
+# ------------------------------------------------------------------ motion graphics
+# The season machine and the forecast cone are drawn by motion.js from the simulation's
+# own shape; the report card is drawn here, so it reads without JavaScript at all.
+_ng = R.get("next_game")
+if _ng:
+    _opp_full = f"the {_ng['opp_name']}" if _ng.get("opp_name") else _ng["opp"]
+    WIN_CAP, LOSS_CAP = f"they beat {_opp_full}", f"they lose to {_opp_full}"
+else:
+    WIN_CAP = LOSS_CAP = ""
+_mx_states = R["machine"]["states"]
+_mx_btns = '<button type="button" data-mx="model" aria-pressed="true">All seasons</button>'
+if "win" in _mx_states and _ng:
+    _mx_btns += (f'<button type="button" data-mx="win" aria-pressed="false">Beat {_ng["opp"]} '
+                 f'<em>{pct(_mx_states["win"]["odds"], 0)}</em></button>'
+                 f'<button type="button" data-mx="loss" aria-pressed="false">Lose to {_ng["opp"]} '
+                 f'<em>{pct(_mx_states["loss"]["odds"], 0)}</em></button>')
+_mx_btns += ('<button type="button" data-mx="replay" class="mxre" '
+             'title="Pour the seasons again">&#8635; Run it again</button>')
+_mcut = R["machine"]["cut"]
+machine_section = f"""<div class="panel mx" id="seasons">
+  <div class="mxhead">
+    <div class="mxlead">
+      <h2>Every dot is a season <span class="sub">&mdash; the simulation, played out in front of you</span></h2>
+      <div class="mxodds"><span id="mxOdds">{ODDS * 100:.1f}</span><small>%</small></div>
+      <div class="mxcap" id="mxCap">chance of a playoff spot</div>
+    </div>
+    <div class="mxctl" role="group" aria-label="Which seasons to show">{_mx_btns}</div>
+  </div>
+  <div class="mxcv"><canvas id="machine" role="img"
+    aria-label="Histogram of the {NICK}' final points over {R['nsim']:,} simulated seasons; {ODDS * 100:.1f}% end in the playoffs. The cut line is around {_mcut['p50']:.0f} points."></canvas></div>
+  <div class="mxleg"><span><i class="dn"></i>makes the playoffs</span><span><i class="do"></i>misses</span>
+    <span>1 dot = <b id="mxK">&hellip;</b> seasons</span>
+    <span><i class="db"></i>where the cut line falls 80% of the time ({_mcut['p10']:.0f}&ndash;{_mcut['p90']:.0f})</span></div>
+  <div class="note">Each season is the rest of the schedule played out once, every game drawn from
+    the same model as the rest of the page. The counter is the share of the dots landed so far
+    that make the playoffs &mdash; watch it wobble and then settle: that is all a Monte Carlo is.
+    {"Tap a result for tonight's game and the same seasons re-sort to where they finish if it goes that way." if WIN_CAP else ""}</div>
+</div>"""
+
+_cq = R["cone"]["q"]
+if R["cone"]["dates"]:
+    _cone_idle = (f"By game {D.SEASON_GAMES}, half of the simulated seasons finish between "
+                  f"<b>{_cq['p25'][-1]:.0f}</b> and <b>{_cq['p75'][-1]:.0f}</b> points "
+                  f"(median {_cq['p50'][-1]:.0f}); the cut line is likely "
+                  f"{_mcut['p10']:.0f}&ndash;{_mcut['p90']:.0f}. Drag across the chart to read any game.")
+else:
+    _cone_idle = "The season is complete."
+cone_section = f"""<div class="grid1">
+  <div class="card" id="forecast">
+    <h2>Where the season is heading <span class="sub">&mdash; a forecast cone, drawn the way hurricane tracks are</span></h2>
+    <div id="cone" class="cone"></div>
+    <div class="coneread" id="coneRead" aria-live="polite" data-idle="{html.escape(_cone_idle)}">{_cone_idle}</div>
+    <div class="note">The solid line is the season so far, game by game. Each thin line is one
+      simulated finish &mdash; navy if it ends in the playoffs, grey if not &mdash; and the bands hold
+      the middle 50% and 90% of all {R['nsim']:,} seasons, with the dashed median through them. The
+      bar at the far right is where the second wild card finishes 80% of the time.</div>
+  </div>
+</div>"""
+
+# ---- the report card: the model graded against a season that already happened
+def _season_name(sid):
+    return f"{sid[:4]}&ndash;{sid[6:8]}"
+
+BT = None
+_bt_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
+if os.path.isdir(_bt_dir):
+    _cands = sorted(f for f in os.listdir(_bt_dir) if f.startswith("backtest_") and f.endswith(".json"))
+    for _f in reversed(_cands):
+        _b = json.load(open(os.path.join(_bt_dir, _f)))
+        if _b.get("held_out"):
+            BT = _b
+            break
+
+report_section = ""
+if BT:
+    _b, _e = BT["brier"], BT["brier_early"]
+    _rows = [("This model", _b["model"], C["brand"]),
+             ("Reading the standings", _b["standings"], C["blue"]),
+             ("A coin flip", _b["coin"], C["axis"])]
+    _bars = "".join(
+        f'<div class="rcrow"><div class="rcl">{lab}</div><div class="rcbar"><i style="width:{v / 0.30 * 100:.1f}%;'
+        f'background:{col};--d:{k * 140}ms"></i></div><div class="rcv">{v:.3f}</div></div>'
+        for k, (lab, v, col) in enumerate(_rows))
+    # calibration: when it said X%, how often did it happen?
+    S_, M_, R_ = 260, 44, 18
+    cx = lambda v: M_ + v * (S_ - M_ - R_)
+    cy = lambda v: S_ - 34 - v * (S_ - 34 - 14)
+    _cal = [f'<line x1="{cx(0)}" y1="{cy(0)}" x2="{cx(1)}" y2="{cy(1)}" stroke="{C["axis"]}" stroke-dasharray="4 4"/>']
+    for v in (0, .25, .5, .75, 1):
+        _cal.append(f'<text x="{cx(v):.1f}" y="{S_ - 18}" text-anchor="middle" font-size="9" fill="{C["mute"]}">{v * 100:.0f}%</text>'
+                    f'<text x="{M_ - 6}" y="{cy(v) + 3:.1f}" text-anchor="end" font-size="9" fill="{C["mute"]}">{v * 100:.0f}%</text>')
+    _mid = (cy(0) + cy(1)) / 2
+    _cal.append(f'<text x="{(cx(0) + cx(1)) / 2:.0f}" y="{S_ - 3}" text-anchor="middle" font-size="9.5" font-weight="700" fill="{C["ink2"]}">what it said</text>'
+                f'<text x="10" y="{_mid:.0f}" text-anchor="middle" font-size="9.5" font-weight="700" fill="{C["ink2"]}" transform="rotate(-90 10 {_mid:.0f})">what happened</text>')
+    for k, bn in enumerate(BT["bins"]):
+        r_ = min(11, 2.5 + math.sqrt(bn["n"]) * 0.55)
+        _cal.append(f'<circle cx="{cx(bn["p"]):.1f}" cy="{cy(bn["freq"]):.1f}" r="{r_:.1f}" fill="{C["brand"]}" '
+                    f'fill-opacity=".82" stroke="#fff" stroke-width="1.5" style="--d:{k * 70}ms">'
+                    f'<title>said {bn["p"] * 100:.0f}% on average, happened {bn["freq"] * 100:.0f}% ({bn["n"]} predictions)</title></circle>')
+    calib_svg = (f'<svg class="cal" viewBox="0 0 {S_} {S_}" width="100%" role="img" '
+                 f'aria-label="Calibration: predicted against observed playoff rates">{"".join(_cal)}</svg>')
+    # how fast it learns: score by week, model against the standings, coin for reference
+    _bd = BT["by_date"]
+    def _learn(LW, LH, fs, cls):
+        """The weekly score chart at one width; two are emitted, one per screen size, so
+        the text is the same size on a phone as on a desktop."""
+        LM = 34
+        lx = lambda i: LM + i / max(1, len(_bd) - 1) * (LW - LM - 10)
+        _top = max(0.4, max(max(d["standings"], d["model"]) for d in _bd))
+        ly = lambda v: 12 + (1 - v / _top) * (LH - 38)
+        _ln = lambda key: " ".join(f"{lx(i):.1f},{ly(d[key]):.1f}" for i, d in enumerate(_bd))
+        months, last = [], -99
+        for i, d in enumerate(_bd):
+            if (i == 0 or d["date"][5:7] != _bd[i - 1]["date"][5:7]) and lx(i) - last > fs * 3:
+                last = lx(i)
+                months.append(f'<text x="{lx(i):.1f}" y="{LH - 6}" font-size="{fs}" fill="{C["mute"]}">'
+                              f'{datetime.date.fromisoformat(d["date"]).strftime("%b")}</text>')
+        return (f'<svg class="learn {cls}" viewBox="0 0 {LW} {LH}" width="100%" role="img" aria-label="Score by week of the season">'
+                f'<line x1="{LM}" x2="{LW - 10}" y1="{ly(.25):.1f}" y2="{ly(.25):.1f}" stroke="{C["axis"]}" stroke-dasharray="4 4"/>'
+                f'<text x="{LW - 12}" y="{ly(.25) - 5:.1f}" text-anchor="end" font-size="{fs}" fill="{C["mute"]}">coin flip</text>'
+                f'<polyline pathLength="1" points="{_ln("standings")}" fill="none" stroke="{C["blue"]}" stroke-width="1.6" opacity=".7"/>'
+                f'<polyline pathLength="1" points="{_ln("model")}" fill="none" stroke="{C["brand"]}" stroke-width="2.4" stroke-linejoin="round"/>'
+                f'<text x="{LM - 6}" y="{ly(0) + 4:.1f}" text-anchor="end" font-size="{fs}" fill="{C["mute"]}">0</text>'
+                f'<text x="{LM - 6}" y="{ly(.25) + 4:.1f}" text-anchor="end" font-size="{fs}" fill="{C["mute"]}">.25</text>'
+                f'{"".join(months)}</svg>')
+    learn_svg = _learn(1060, 190, 11, "lwide") + _learn(380, 170, 10.5, "lnarrow")
+    _names = BT.get("names", {})
+    _worst = BT["worst"][:3]
+    _worst_html = "".join(
+        f'<li>Had the <b>{_names.get(w["team"], w["team"])}</b> at {w["p"] * 100:.0f}% on '
+        f'{datetime.date.fromisoformat(w["date"]).strftime("%b %-d")} &mdash; they '
+        f'{"made it" if w["made"] else "missed"}.</li>' for w in _worst)
+    _lf = BT["leafs"]
+    _leafs_line = (f'On opening night of {_season_name(BT["season"])} it had the Leafs at '
+                   f'<b>{_lf[0]["p"] * 100:.0f}%</b>; they '
+                   f'{"made it" if BT["truth"].get("TOR") else "missed"}.') if _lf else ""
+    # the sentence is read off the numbers, so a regenerated backtest can never leave it
+    # claiming something the new run does not show
+    _wk = BT["early_weeks"]
+    _prev_lost = _e["previous"] > _e["coin"]
+    _fix_html = (
+        f"<b>What grading it changed.</b> The first version of this model "
+        + (f"lost to a coin over the first {_wk} weeks of that season ({_e['previous']:.3f} "
+           f"against {_e['coin']:.3f})" if _prev_lost else
+           f"scored {_e['previous']:.3f} over the first {_wk} weeks of that season")
+        + ": it leaned hard on the season before and treated each club's strength as known. "
+        f"It now leans less on last season and draws every club's strength from a range in each "
+        f"simulated season. Those settings were fitted on {_season_name(BT['fit_season'])} alone, "
+        f"then graded here: <b>{_e['model']:.3f}</b> over the first {_wk} weeks"
+        + (" &mdash; better than a coin &mdash;" if _e["model"] < _e["coin"] else "")
+        + f" and <b>{_b['model']:.3f}</b> over the season, "
+        + (f"down from {_b['previous']:.3f}." if _b["model"] < _b["previous"]
+           else f"against {_b['previous']:.3f} before.")
+    )
+    report_section = f"""<div class="card rc" id="report">
+  <h2>Is this model any good? <span class="sub">&mdash; graded on a season it never saw</span></h2>
+  <div class="rcgrid">
+    <div>
+      <p class="rclead">The {_season_name(BT['season'])} season, replayed week by week from opening
+        night, knowing only what was known each morning &mdash; the season before and the games played
+        so far &mdash; and every club's odds scored against who actually made the playoffs.
+        <b>{BT['n_predictions']:,} predictions</b>, {len(_bd)} weeks.</p>
+      <div class="rcbars">{_bars}</div>
+      <div class="rcsmall">Brier score: the average squared miss of a probability &mdash; lower is
+        better, and a coin scores 0.250. "Reading the standings" gives every club in a playoff spot
+        that morning 100% and everyone else 0%.</div>
+      <div class="rcfix">{_fix_html}</div>
+    </div>
+    <div class="rccal">{calib_svg}
+      <div class="rcsmall">Each dot is a band of predictions &mdash; when it said 70&ndash;80%, how
+        often did that happen? On the dashed line is perfectly calibrated; bigger dots are more
+        predictions. The {BT['n_predictions']:,} are not independent (the same clubs, week after
+        week), so read this as a sanity check, not a proof.</div></div>
+  </div>
+  <div class="rclearn"><div class="rclh">How fast it learns <span class="sub">&mdash; score by week,
+    <b style="color:{C['brand']}">this model</b> against <b style="color:{C['blue']}">the standings</b></span></div>
+    {learn_svg}</div>
+  <div class="rcmiss"><div class="rclh">Its worst calls</div><ul>{_worst_html}</ul>
+    <div class="rcsmall">{_leafs_line} Every season, refreshed by <code>src/backtest.py</code>.</div></div>
+</div>"""
+
+SECTIONS = [("seasons", "Every season"), ("play", "Play it out")]
 if TREND_SVG:
     SECTIONS.append(("trend", "How we got here"))
-SECTIONS += [("takes", "What it takes"), ("race", "The race"), ("curve", "Points needed"),
+SECTIONS += [("takes", "What it takes"), ("forecast", "Forecast"), ("race", "The race"),
+             ("curve", "Points needed"),
              ("watch", "Scoreboard")]
 if AROUND:
     SECTIONS.append(("around", "Around the league"))
 if BK:
     SECTIONS.append(("bracket", "If they get in"))
 SECTIONS.append(("calendar", "Calendar"))
+if report_section:
+    SECTIONS.append(("report", "Report card"))
 nav_html = "".join(f'<a href="#{s}">{html.escape(l)}</a>' for s, l in SECTIONS)
 
 GENERATED_UTC = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -670,6 +855,15 @@ SIM["shareName"] = FULL
 SIM["shareTitle"] = f"{NICK} Playoff Tracker"
 SIMJSON = json.dumps(SIM, separators=(",", ":"))
 APPJS = open("app.js").read()
+MOTIONJS = open("motion.js").read()
+VIZ = {
+    "machine": R["machine"], "cone": R["cone"],
+    "winCap": WIN_CAP, "lossCap": LOSS_CAP,
+    "colors": {"brand": C["brand"], "blue": C["blue"], "out": "#B7C6DC", "outLine": "#9AAAC2",
+               "axis": C["axis"], "grid": C["grid"], "mute": C["mute"], "ink": C["ink"],
+               "ink2": C["ink2"], "navyRgb": NAVY_RGB},
+}
+VIZJSON = json.dumps(VIZ, separators=(",", ":")).replace("</", "<\\/")
 
 LIVE_JS = r"""<script>
 /* Time, in the reader's terms. The build stamps UTC; the browser renders Eastern time,
@@ -1140,6 +1334,60 @@ td.pts{{font-weight:800;color:{C['navy']}}}
  .snav a{{font-size:11px;padding:5px 10px}}
  .foot{{flex-direction:column;align-items:flex-start}} .footmeta{{text-align:left}}
 }}
+
+/* ---- motion: the season machine, the forecast cone, the report card, reveals */
+.mx{{padding:20px 22px 16px}}
+.mxhead{{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:6px}}
+.mxodds{{font-size:58px;font-weight:800;letter-spacing:-.045em;line-height:1;color:{C['brand']};
+  font-variant-numeric:tabular-nums;margin-top:8px}}
+.mxodds small{{font-size:26px;letter-spacing:0;margin-left:2px}}
+.mxcap{{font-size:12px;color:{C['ink2']};margin-top:4px;min-height:16px}}
+.mxctl{{display:flex;flex-wrap:wrap;gap:6px}}
+.mxctl button{{font:inherit;font-size:12px;font-weight:700;padding:7px 12px;border-radius:999px;cursor:pointer;
+  border:1px solid rgba({NAVY_RGB},.22);background:#fff;color:{C['brand']};transition:background .2s,color .2s}}
+.mxctl button em{{font-style:normal;font-weight:600;opacity:.7;margin-left:3px}}
+.mxctl button[aria-pressed="true"]{{background:{C['brand']};color:#fff;border-color:{C['brand']}}}
+.mxctl button:focus-visible{{outline:2px solid {C['blue']};outline-offset:2px}}
+.mxctl .mxre{{border-style:dashed}}
+.mxcv{{position:relative;width:100%;margin-top:4px}}
+.mxcv canvas{{display:block;width:100%}}
+.mxleg{{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:11px;color:{C['ink2']};margin-top:6px}}
+.mxleg i{{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}}
+.mxleg .dn{{background:{C['brand']}}} .mxleg .do{{background:#B7C6DC}}
+.mxleg .db{{border-radius:2px;background:rgba({NAVY_RGB},.10);border:1px solid rgba({NAVY_RGB},.25)}}
+.cone{{width:100%}}
+.coneread{{font-size:12px;color:{C['ink2']};margin-top:6px;min-height:34px;line-height:1.5}}
+.rc .rcgrid{{display:grid;grid-template-columns:1.25fr .75fr;gap:22px;align-items:start}}
+.rclead{{font-size:13px;line-height:1.6;color:{C['ink']};margin:4px 0 12px}}
+.rcrow{{display:grid;grid-template-columns:150px 1fr 46px;align-items:center;gap:10px;margin:7px 0}}
+.rcl{{font-size:12px;font-weight:700;color:{C['ink']}}}
+.rcbar{{height:12px;background:{C['card2']};border-radius:6px;overflow:hidden}}
+.rcbar i{{display:block;height:100%;border-radius:6px;transform-origin:left}}
+.rcv{{font-size:13px;font-weight:800;color:{C['brand']};text-align:right;font-variant-numeric:tabular-nums}}
+.rcsmall{{font-size:10.5px;color:{C['ink2']};line-height:1.6;margin-top:8px}}
+.rcfix{{font-size:12px;line-height:1.6;color:{C['ink']};margin-top:14px;padding:12px 14px;
+  background:{C['card2']};border-radius:10px;border-left:3px solid {C['brand']}}}
+.rclearn,.rcmiss{{margin-top:18px}}
+.learn.lnarrow{{display:none}}
+.rccal svg{{max-width:300px;display:block}}
+.rclh{{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:{C['brand']};margin-bottom:6px}}
+.rclh .sub{{letter-spacing:0;text-transform:none}}
+.rcmiss ul{{margin:4px 0 0;padding-left:18px;font-size:12px;line-height:1.7;color:{C['ink']}}}
+.rcmiss code{{font-size:10px}}
+.rv{{opacity:0;transform:translateY(18px)}}
+.rv.in{{opacity:1;transform:none;transition:opacity .7s ease,transform .8s cubic-bezier(.2,.7,.2,1)}}
+.rv .rcbar i{{transform:scaleX(0)}}
+.rv.in .rcbar i{{transform:none;transition:transform 1.1s cubic-bezier(.2,.7,.2,1) calc(.25s + var(--d))}}
+.rv .cal circle{{transform:scale(0);transform-box:fill-box;transform-origin:center}}
+.rv.in .cal circle{{transform:none;transition:transform .55s cubic-bezier(.3,1.6,.5,1) calc(.4s + var(--d))}}
+.rv .learn polyline{{stroke-dasharray:1;stroke-dashoffset:1}}
+.rv.in .learn polyline{{stroke-dashoffset:0;transition:stroke-dashoffset 1.6s ease .5s}}
+.rv .obf{{transform:scaleX(0);transform-origin:left}}
+.rv.in .obf{{transform:none;transition:transform 1s cubic-bezier(.2,.7,.2,1) .2s}}
+@media(max-width:760px){{.rc .rcgrid{{grid-template-columns:1fr}} .rccal{{max-width:320px}}
+  .learn.lwide{{display:none}} .learn.lnarrow{{display:block}}
+  .mxodds{{font-size:46px}} .mx{{padding:16px 14px 14px}} .rcrow{{grid-template-columns:118px 1fr 42px}}}}
+@media(prefers-reduced-motion:reduce){{.rv,.rv *{{transition:none!important;transform:none!important;opacity:1!important}}}}
 </style></head><body><div class="wrap">
 
 <div class="hdr">
@@ -1168,6 +1416,8 @@ td.pts{{font-weight:800;color:{C['navy']}}}
 <div class="stale" id="stale" role="status" hidden></div>
 {next_html}
 <nav class="snav" aria-label="Jump to section">{nav_html}</nav>
+
+{machine_section}
 
 <div class="panel" id="play">
   <div class="pnhead">
@@ -1218,7 +1468,7 @@ td.pts{{font-weight:800;color:{C['navy']}}}
 <div class="grid1">
   <div class="card" id="takes">
     <h2>What it takes</h2>
-    <div class="statv">{NEED} points</div>
+    <div class="statv"><span data-count="{NEED}">{NEED}</span> points</div>
     <div class="statl">from {GL} games, to reach <b>{CUT_TARGET}</b> &mdash; the median cut line,
       the second wild card's final total &mdash; a <b>{P['ros_pace']:.3f}</b> points pace.
       {takes_ctx} In the seasons where they qualify they take
@@ -1237,6 +1487,8 @@ td.pts{{font-weight:800;color:{C['navy']}}}
     </div>
   </div>
 </div>
+
+{cone_section}
 
 <div class="grid2b">
   <div class="card" id="race">
@@ -1310,11 +1562,16 @@ td.pts{{font-weight:800;color:{C['navy']}}}
   {mustsee_rows}
 </div>
 
+{report_section}
+
 <div class="note">
 <b>Method.</b> Team strength is the probability of beating an average club: goal-based
 Pythagorean win% (exponent 2.1) blended 70/30 with actual win%, pooled across last season and
-this one, then regressed toward .500. Last season counts as {M.PRIOR_WEIGHT:.0f} games, so it
-carries a preseason projection on its own and fades as this season's games arrive. Every remaining game on the real NHL schedule
+this one, then regressed toward .500 with {M.REG_PRIOR:.0f} games' worth of an average club. Last
+season counts as {M.PRIOR_WEIGHT:.0f} games, so it carries a preseason projection on its own and fades as
+this season's games arrive. Each simulated season also draws every club's strength from a range around
+that estimate, so the odds carry the uncertainty in the estimate as well as the luck of the games;
+those settings were fitted on one past season and graded on another (see the report card). Every remaining game on the real NHL schedule
 &mdash; {D.SEASON_GAMES} per club this season &mdash; is simulated with a log5 matchup plus home ice
 (home sides won {R['league']['home_win'] * 100:.1f}% last season). A separate draw decides whether the
 game went past regulation ({R['league']['p_ot'] * 100:.1f}% did last season), which is what gives the
@@ -1335,6 +1592,8 @@ goaltending changes or the trade deadline. Data: NHL public API.
 </div>
 {LIVE_JS}<script>window.__SIM__={SIMJSON};</script>
 <script>{APPJS}</script>
+<script>window.__VIZ__={VIZJSON};</script>
+<script>{MOTIONJS}</script>
 </body></html>"""
 
 open("tracker.html", "w").write(HTML)

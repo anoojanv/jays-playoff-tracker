@@ -148,6 +148,10 @@ def _():
             assert d["TEAMS"][t][k] == v[k], (t, k, d["TEAMS"][t][k], v[k])
     assert d["GAMES"] == fx["GAMES"], "remaining schedule differs from the fixture"
     assert d["RECENT"] == fx["RECENT"]
+    assert d["LOG"] == fx["LOG"]
+    tor = fx["TEAMS"]["TOR"]
+    assert len(d["LOG"]) == tor["w"] + tor["l"] + tor["otl"]
+    assert d["LOG"][-1]["pts"] == 2 * tor["w"] + tor["otl"], "the log must end on the standings"
     assert d["season_games"] == 84 and not d["preseason"]
     assert d["as_of"] == fx["as_of"]
 
