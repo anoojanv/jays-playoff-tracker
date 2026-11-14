@@ -49,10 +49,24 @@ def record(w, l, otl):
     return edit
 
 
+def with_history(d):
+    """A week of readings carried from the live page, so the build draws the trend chart.
+
+    Every other case starts with no history, which is exactly why a crash in the chart
+    shipped: it only happens once the live page has carried four readings over 18 hours,
+    and from then on every build failed until the old readings aged out.
+    """
+    import time
+    now = int(time.time())
+    d["HISTORY"] = ",".join(f"{now - k * 20 * 3600}:{600 + 15 * k}:{-3 + k}"
+                            for k in range(8, 0, -1))
+
+
 # (label, edit, what the page must say)
 CASES = [
     ("preseason — nothing played yet", preseason, "Season opens"),
     ("in the thick of it", None, "Play it out"),
+    ("with a week of history carried forward", with_history, "rebuilds over"),
     ("clinched — nothing left to decide", record(50, 0, 0), "all but locked up"),
     ("mathematically eliminated", record(0, 50, 0), "All but out"),
 ]

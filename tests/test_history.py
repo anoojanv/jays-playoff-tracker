@@ -124,8 +124,10 @@ def _():
         assert abs(back - odds) <= 0.0005, (odds, back)
 
 
-PALETTE = {"grid": "#E3EBF6", "mute": "#5F7290", "ink2": "#4A5C7A",
-           "blue": "#1C5FAD", "red": "#E8291C"}
+# the keys build_html.py's palette actually has — this used to carry a "red" the Leafs
+# palette dropped, so the test drew the chart happily while every real build crashed
+PALETTE = {"grid": "#E1E8F2", "mute": "#5C6E8C", "ink2": "#465A78",
+           "blue": "#3D6DB5", "brand": "#00205B"}
 
 
 def _series(n, start=NOW - 11 * 24 * HOUR, step=4 * HOUR, lo=120, hi=490):

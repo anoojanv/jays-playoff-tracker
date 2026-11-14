@@ -168,9 +168,10 @@ def sparkline(points, C, w=660, h=150):
                   f'<text x="{x(pt[0]):.1f}" y="{y(pt[1])+dy:.1f}" text-anchor="middle" '
                   f'font-size="9.5" font-weight="700" fill="{C["ink2"]}" stroke="#fff" '
                   f'stroke-width="3" paint-order="stroke">{pt[1]*100:.0f}% {lab}</text>')
+    # the latest reading, in the page's brand colour: red is kept for bad news only
     last = pts[-1]
     marks += (f'<circle cx="{x(last[0]):.1f}" cy="{y(last[1]):.1f}" r="4.5" '
-              f'fill="{C["red"]}" stroke="#fff" stroke-width="2"/>')
+              f'fill="{C["brand"]}" stroke="#fff" stroke-width="2"/>')
 
     days_span = span / 86400
     svg = (f'<svg viewBox="0 0 {w} {h}" width="100%" role="img" '
